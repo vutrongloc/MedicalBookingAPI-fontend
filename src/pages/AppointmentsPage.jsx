@@ -1,0 +1,509 @@
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { toast } from "react-toastify";
+import PageState from "../components/common/PageState";
+import { useAuth } from "../hooks/useAuth";
+import {
+  createAppointmentService,
+  getMyAppointmentsService,
+  updateAppointmentStatusService,
+  cancelAppointmentService,
+} from "../api/services/appointmentService";
+import { getDoctorsService } from "../api/services/doctorService";
+import { getDepartmentsService } from "../api/services/departmentService";
+import Modal from "../components/common/Modal";
+import StatusBadge from "../components/common/StatusBadge";
+import Pagination from "../components/common/Pagination";
+import SearchBar from "../components/common/SearchBar";
+import ConfirmDialog from "../components/common/ConfirmDialog";
+
+const TIME_SLOTS = ["09:00", "10:00", "11:00", "14:00", "21:00"];
+const STATUS_FILTER_OPTIONS = [
+  { value: "", label: "Tất cả trạng thái" },
+  { value: "Pending", label: "Chờ xác nhận" },
+  { value: "Confirmed", label: "Đã xác nhận" },
+  { value: "Completed", label: "Hoàn thành" },
+  { value: "Cancelled", label: "Đã hủy" },
+];
+
+export default function AppointmentsPage() {
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const initialDoctorId = searchParams.get("doctorId") || "";
+
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+  const [appointments, setAppointments] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [doctors, setDoctors] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialDoctorId);
+  const [appointmentDate, setAppointmentDate] = useState("");
+  const [selectedTime, setSelectedTime] = useState("");
+  const [symptoms, setSymptoms] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  const loadAppointments = async (page = 1, status = statusFilter, date = dateFilter) => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getMyAppointmentsService(user.role, {
+        page,
+        pageSize: 10,
+        status: status || undefined,
+        fromDate: date || undefined,
+      });
+      setAppointments(data.items);
+      setTotalPages(data.totalPages);
+      setCurrentPage(data.page);
+    } catch (e) {
+      setError(e?.message || "Không thể tải lịch hẹn");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadData = async () => {
+    try {
+      const [doctorList, departmentList] = await Promise.all([
+        getDoctorsService(),
+        getDepartmentsService(),
+      ]);
+      setDoctors(doctorList.items || doctorList);
+      setDepartments(departmentList.items || departmentList);
+    } catch {
+      // Silently fail
+    }
+  };
+
+  useEffect(() => {
+    loadAppointments(1);
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    const delay = setTimeout(() => {
+      loadAppointments(1, statusFilter, dateFilter);
+    }, 300);
+    return () => clearTimeout(delay);
+  }, [statusFilter, dateFilter]);
+
+  useEffect(() => {
+    if (initialDoctorId) {
+      const doctor = doctors.find((d) => `${d.doctorId}` === `${initialDoctorId}`);
+      if (doctor) {
+        setSelectedDepartmentId(`${doctor.departmentId}`);
+        setSelectedDoctorId(`${initialDoctorId}`);
+      }
+    }
+  }, [initialDoctorId, doctors]);
+
+  const filteredDoctors = selectedDepartmentId
+    ? doctors.filter((d) => `${d.departmentId}` === `${selectedDepartmentId}`)
+    : doctors;
+
+  const selectedDepartment = departments.find(
+    (d) => `${d.departmentId}` === `${selectedDepartmentId}`
+  );
+  const selectedDoctor = doctors.find((d) => `${d.doctorId}` === `${selectedDoctorId}`);
+  const appointmentDateTime =
+    appointmentDate && selectedTime ? `${appointmentDate}T${selectedTime}` : "";
+
+  const handleOpenConfirm = () => {
+    if (!selectedDoctorId || !appointmentDate || !selectedTime) {
+      toast.error("Vui lòng chọn đầy đủ chuyên khoa, bác sĩ, ngày và giờ khám");
+      return;
+    }
+    setShowConfirm(true);
+  };
+
+  const handleCreate = async () => {
+    try {
+      setCreating(true);
+      await createAppointmentService({
+        doctorId: selectedDoctorId,
+        appointmentTime: appointmentDateTime,
+      });
+      toast.success("Tạo lịch hẹn thành công");
+      setShowConfirm(false);
+      setSelectedDepartmentId("");
+      setSelectedDoctorId("");
+      setAppointmentDate("");
+      setSelectedTime("");
+      setSymptoms("");
+      await loadAppointments(1);
+    } catch (e) {
+      toast.error(e?.message || "Tạo lịch hẹn thất bại");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRowClick = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowDetailModal(true);
+  };
+
+  const handleStatusUpdate = async (appointmentId, newStatus) => {
+    setUpdating(true);
+    try {
+      await updateAppointmentStatusService(appointmentId, newStatus);
+      toast.success("Cập nhật trạng thái thành công");
+      setShowDetailModal(false);
+      await loadAppointments(currentPage);
+    } catch (e) {
+      toast.error(e?.message || "Cập nhật thất bại");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCancel = async (appointmentId) => {
+    try {
+      await cancelAppointmentService(appointmentId);
+      toast.success("Hủy lịch hẹn thành công");
+      setShowDetailModal(false);
+      setConfirmAction(null);
+      await loadAppointments(currentPage);
+    } catch (e) {
+      toast.error(e?.message || "Hủy lịch hẹn thất bại");
+    }
+  };
+
+  const displayedAppointments = searchTerm
+    ? appointments.filter((a) =>
+        (a.patientName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (a.doctorName || "").toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : appointments;
+
+  return (
+    <>
+      {user?.role === "Patient" && (
+        showConfirm ? (
+          <div className="card booking-confirm-card">
+            <h2 className="booking-title">THÔNG TIN LỊCH KHÁM</h2>
+            <div className="booking-summary">
+              <p>Chuyên khoa: {selectedDepartment?.departmentName || "-"}</p>
+              <p>Bác sĩ: {selectedDoctor?.fullName || "-"}</p>
+              <p>
+                Thời gian: {appointmentDate || "-"} - {selectedTime || "-"}
+              </p>
+            </div>
+
+            <h3 className="booking-subtitle">TRIỆU CHỨNG</h3>
+            <textarea
+              className="booking-textarea"
+              placeholder="Mô tả triệu chứng của bạn"
+              value={symptoms}
+              onChange={(e) => setSymptoms(e.target.value)}
+            />
+            <p className="booking-note">
+              Kết quả chẩn đoán AI: (nếu bệnh nhân sử dụng chẩn đoán AI trước đó thì bỏ qua)
+            </p>
+
+            <div className="booking-confirm-actions">
+              <button className="btn register-btn" onClick={handleCreate} disabled={creating}>
+                {creating ? "Đang xác nhận..." : "Xác nhận đặt lịch"}
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => setShowConfirm(false)}
+                disabled={creating}
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="card booking-card">
+            <h2 className="booking-title">Đặt lịch khám</h2>
+            <div className="booking-grid">
+              <div className="booking-left">
+                <label className="booking-label">CHỌN CHUYÊN KHOA</label>
+                <select
+                  className="booking-select"
+                  value={selectedDepartmentId}
+                  onChange={(e) => {
+                    setSelectedDepartmentId(e.target.value);
+                    setSelectedDoctorId("");
+                  }}
+                >
+                  <option value="">-- Chọn chuyên khoa --</option>
+                  {departments.map((d) => (
+                    <option key={d.departmentId} value={d.departmentId}>
+                      {d.departmentName}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="booking-label">CHỌN BÁC SĨ</label>
+                <select
+                  className="booking-select"
+                  value={selectedDoctorId}
+                  onChange={(e) => setSelectedDoctorId(e.target.value)}
+                >
+                  <option value="">-- Chọn bác sĩ --</option>
+                  {filteredDoctors.map((d) => (
+                    <option key={d.doctorId} value={d.doctorId}>
+                      {d.fullName}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="booking-label">THÔNG TIN BÁC SĨ</label>
+                <div className="booking-doctor-card">
+                  <div className="booking-doctor-head">
+                    <strong>{selectedDoctor?.fullName || "BS. Chưa chọn"}</strong>
+                    <span>{selectedDoctor?.departmentName || "Khoa"}</span>
+                  </div>
+                  <div className="booking-doctor-body">
+                    {selectedDoctor?.qualification || "Thông tin chi tiết"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="booking-right">
+                <label className="booking-label">CHỌN NGÀY</label>
+                <input
+                  type="date"
+                  className="booking-date"
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                />
+
+                <label className="booking-label">CHỌN GIỜ</label>
+                <div className="booking-time-list">
+                  {TIME_SLOTS.map((slot) => {
+                    const active = slot === selectedTime;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        className={active ? "booking-time active" : "booking-time"}
+                        onClick={() => setSelectedTime(slot)}
+                      >
+                        {slot}-{slot === "21:00" ? "21:30" : `${slot.slice(0, 2)}:30`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="booking-save-wrap">
+              <button className="btn booking-save-btn" onClick={handleOpenConfirm}>
+                Lưu lịch khám
+              </button>
+            </div>
+          </div>
+        )
+      )}
+
+      <div className="card">
+        <div className="table-toolbar">
+          <h2>Lịch hẹn</h2>
+          <div className="table-toolbar-filters">
+            <SearchBar
+              placeholder="Tìm bác sĩ, bệnh nhân..."
+              value={searchTerm}
+              onChange={setSearchTerm}
+              onClear={() => setSearchTerm("")}
+            />
+            <select
+              className="table-filter-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              {STATUS_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <input
+              type="date"
+              className="table-filter-date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              placeholder="Lọc theo ngày"
+            />
+          </div>
+        </div>
+
+        <PageState
+          loading={loading}
+          error={error}
+          empty={!displayedAppointments.length}
+          emptyText="Chưa có lịch hẹn"
+        >
+          <table className="table table-clickable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Bệnh nhân</th>
+                <th>Bác sĩ</th>
+                <th>Khoa</th>
+                <th>Thời gian</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedAppointments.map((a) => (
+                <tr key={a.appointmentId} onClick={() => handleRowClick(a)} style={{ cursor: "pointer" }}>
+                  <td>{a.appointmentId}</td>
+                  <td>{a.patientName}</td>
+                  <td>{a.doctorName}</td>
+                  <td>{a.departmentName}</td>
+                  <td>{a.appointmentTimeText}</td>
+                  <td><StatusBadge status={a.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!searchTerm && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={(p) => loadAppointments(p)}
+            />
+          )}
+        </PageState>
+      </div>
+
+      {selectedAppointment && (
+        <AppointmentDetailModal
+          appointment={selectedAppointment}
+          isOpen={showDetailModal}
+          onClose={() => setShowDetailModal(false)}
+          userRole={user?.role}
+          onStatusUpdate={handleStatusUpdate}
+          onCancel={handleCancel}
+          updating={updating}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          message={confirmAction.message}
+          confirmText={confirmAction.confirmText}
+          cancelText="Hủy"
+          variant={confirmAction.variant || "warning"}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, onStatusUpdate, onCancel, updating }) {
+  const isPending = appointment.status === "Pending";
+  const isConfirmed = appointment.status === "Confirmed";
+  const isCompleted = appointment.status === "Completed";
+  const isCancelled = appointment.status === "Cancelled";
+  const isPatient = userRole === "Patient";
+  const isDoctor = userRole === "Doctor";
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Chi tiết lịch hẹn" size="md">
+      <div className="appointment-detail">
+        <div className="detail-row">
+          <span className="detail-label">ID</span>
+          <span className="detail-value">#{appointment.appointmentId}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Bệnh nhân</span>
+          <span className="detail-value">{appointment.patientName}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Bác sĩ</span>
+          <span className="detail-value">{appointment.doctorName}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Khoa</span>
+          <span className="detail-value">{appointment.departmentName}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Thời gian</span>
+          <span className="detail-value">{appointment.appointmentTimeText}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Trạng thái</span>
+          <span className="detail-value"><StatusBadge status={appointment.status} /></span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Ngày tạo</span>
+          <span className="detail-value">{appointment.createdAtText}</span>
+        </div>
+
+        <div className="detail-actions">
+          {isPatient && !isCancelled && !isCompleted && (
+            <button
+              className="btn secondary"
+              onClick={() => onCancel(appointment.appointmentId)}
+              disabled={updating}
+            >
+              Hủy lịch hẹn
+            </button>
+          )}
+
+          {isDoctor && isPending && (
+            <button
+              className="btn"
+              onClick={() => onStatusUpdate(appointment.appointmentId, "Confirmed")}
+              disabled={updating}
+            >
+              Xác nhận
+            </button>
+          )}
+
+          {isDoctor && isConfirmed && (
+            <>
+              <button
+                className="btn"
+                onClick={() => onStatusUpdate(appointment.appointmentId, "Completed")}
+                disabled={updating}
+              >
+                Hoàn thành
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => onStatusUpdate(appointment.appointmentId, "Cancelled")}
+                disabled={updating}
+              >
+                Từ chối
+              </button>
+            </>
+          )}
+
+          {isDoctor && isCompleted && (
+            <button
+              className="btn"
+              onClick={() => {
+                onClose();
+                window.location.href = "/medical-records";
+              }}
+            >
+              Tạo bệnh án
+            </button>
+          )}
+
+          <button className="btn secondary" onClick={onClose} disabled={updating}>
+            Đóng
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
