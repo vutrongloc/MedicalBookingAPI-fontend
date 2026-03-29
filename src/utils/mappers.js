@@ -36,10 +36,12 @@ export function mapMedicalRecord(dto) {
   const raw = mapKeysPascalToCamel(dto);
   return {
     ...raw,
+    patientName: normalizeNullable(raw.patientName, "-"),
     doctorName: normalizeNullable(raw.doctorName, "-"),
     departmentName: normalizeNullable(raw.departmentName, "-"),
     doctorDiagnosis: normalizeNullable(raw.doctorDiagnosis, ""),
     treatment: normalizeNullable(raw.treatment, ""),
+    prescription: normalizeNullable(raw.prescription, ""),
     appointmentTimeText: formatDateTime(raw.appointmentTime),
     createdAtText: formatDateTime(raw.createdAt),
   };

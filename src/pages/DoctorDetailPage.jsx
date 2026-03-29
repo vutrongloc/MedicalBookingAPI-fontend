@@ -115,7 +115,7 @@ export default function DoctorDetailPage() {
           </div>
 
           <div className="card">
-            <h3 className="section-title">Lịch hẹn sắp tới</h3>
+            <h3 className="section-title">Lịch hẹn sắp tới của tôi</h3>
             <PageState loading={appointmentsLoading} error="" empty={!upcomingAppointments.length} emptyText="Không có lịch hẹn sắp tới">
               <table className="table">
                 <thead>

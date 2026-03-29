@@ -34,6 +34,12 @@ textarea {
   margin-bottom: 16px;
 }
 
+.records-empty-hint {
+  margin: 8px 0 0;
+  color: #6b7280;
+  font-size: 15px;
+}
+
 .row {
   display: flex;
   gap: 12px;
@@ -109,6 +115,13 @@ textarea {
   gap: 12px;
 }
 
+.topbar-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
 .topbar-logo {
   width: 40px;
   height: 40px;
@@ -154,6 +167,106 @@ textarea {
 
 .topbar-logout:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.avatar-wrapper {
+  position: relative;
+}
+
+.avatar-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.avatar-btn:hover .avatar-circle {
+  background: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.avatar-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
+  z-index: 200;
+  overflow: hidden;
+  animation: slideDown 0.15s ease;
+}
+
+.avatar-dropdown-header {
+  padding: 16px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.avatar-dropdown-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.avatar-dropdown-email {
+  font-size: 12px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-dropdown-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 4px 0;
+}
+
+.avatar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.avatar-dropdown-item:hover {
+  background: #f3f4f6;
+}
+
+.avatar-dropdown-item--danger {
+  color: #dc2626;
+}
+
+.avatar-dropdown-item--danger:hover {
+  background: #fef2f2;
 }
 
 .menu {
@@ -250,6 +363,34 @@ textarea {
 .auth-submit {
   width: 100%;
   margin-top: 10px;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input {
+  flex: 1;
+  padding-right: 40px !important;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.password-toggle:hover {
+  color: #374151;
 }
 
 .login-hint {
@@ -742,6 +883,20 @@ textarea {
   font-size: 18px;
 }
 
+.booking-hint {
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
+
+.booking-no-slots {
+  color: #f59e0b;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
+
 .table-toolbar-filters {
   display: flex;
   align-items: center;
@@ -1040,6 +1195,34 @@ textarea {
   margin-bottom: 14px;
 }
 
+.password-field-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-field-input {
+  flex: 1;
+  padding-right: 40px !important;
+}
+
+.password-field-toggle {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.password-field-toggle:hover {
+  color: #6b7280;
+}
+
 .server-error {
   background: #fee2e2;
   color: #dc2626;
@@ -1301,6 +1484,18 @@ textarea {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 4px;
+}
+
+.medical-record-display {
+  padding: 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  min-height: 60px;
+  color: #374151;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ==========================================

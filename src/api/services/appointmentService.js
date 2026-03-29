@@ -25,6 +25,12 @@ export async function getMyAppointmentsService(role, params = {}) {
   };
 }
 
+export async function getAppointmentByIdService(appointmentId) {
+  const res = await axiosClient.get(`/api/Appointments/${appointmentId}`);
+  const body = unwrapApiResponse(res);
+  return mapAppointment(body.data);
+}
+
 export async function createAppointmentService(form) {
   const payload = {
     doctorId: Number(form.doctorId),

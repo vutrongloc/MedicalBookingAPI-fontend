@@ -8,16 +8,18 @@ import {
   getMyAppointmentsService,
   updateAppointmentStatusService,
   cancelAppointmentService,
+  getAppointmentByIdService,
 } from "../api/services/appointmentService";
 import { getDoctorsService } from "../api/services/doctorService";
 import { getDepartmentsService } from "../api/services/departmentService";
+import { getCurrentUserService } from "../api/services/userService";
 import Modal from "../components/common/Modal";
 import StatusBadge from "../components/common/StatusBadge";
 import Pagination from "../components/common/Pagination";
 import SearchBar from "../components/common/SearchBar";
 import ConfirmDialog from "../components/common/ConfirmDialog";
+import dayjs from "dayjs";
 
-const TIME_SLOTS = ["09:00", "10:00", "11:00", "14:00", "21:00"];
 const STATUS_FILTER_OPTIONS = [
   { value: "", label: "Tất cả trạng thái" },
   { value: "Pending", label: "Chờ xác nhận" },
@@ -25,6 +27,38 @@ const STATUS_FILTER_OPTIONS = [
   { value: "Completed", label: "Hoàn thành" },
   { value: "Cancelled", label: "Đã hủy" },
 ];
+
+const ALL_TIME_SLOTS = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00"];
+
+function generateNext30Days() {
+  const days = [];
+  for (let i = 0; i < 30; i++) {
+    const date = dayjs().add(i, "day");
+    const dayOfWeek = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"][date.day()];
+    days.push({
+      value: date.format("YYYY-MM-DD"),
+      label: `Thứ ${dayOfWeek.slice(3)}, ${date.format("DD/MM/YYYY")}`,
+    });
+  }
+  return days;
+}
+
+function getAvailableTimeSlots(selectedDate) {
+  const now = dayjs();
+  const selected = dayjs(selectedDate);
+  const isToday = selected.isSame(now, "day");
+
+  if (isToday) {
+    const currentHour = now.hour();
+    const currentMinute = now.minute();
+    const cutoffMinutes = currentHour * 60 + currentMinute + 60;
+    return ALL_TIME_SLOTS.filter((slot) => {
+      const [h, m] = slot.split(":").map(Number);
+      return h * 60 + m >= cutoffMinutes;
+    });
+  }
+  return ALL_TIME_SLOTS;
+}
 
 export default function AppointmentsPage() {
   const { user } = useAuth();
@@ -45,7 +79,7 @@ export default function AppointmentsPage() {
   const [departments, setDepartments] = useState([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [selectedDoctorId, setSelectedDoctorId] = useState(initialDoctorId);
-  const [appointmentDate, setAppointmentDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [symptoms, setSymptoms] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
@@ -55,11 +89,26 @@ export default function AppointmentsPage() {
   const [updating, setUpdating] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
 
+  const [currentUser, setCurrentUser] = useState(null);
+
+  const dateOptions = generateNext30Days();
+  const availableTimeSlots = getAvailableTimeSlots(selectedDate);
+
+  const loadCurrentUser = async () => {
+    if (user?.role !== "Patient") return;
+    try {
+      const data = await getCurrentUserService();
+      setCurrentUser(data);
+    } catch {
+      // ignore
+    }
+  };
+
   const loadAppointments = async (page = 1, status = statusFilter, date = dateFilter) => {
     setLoading(true);
     setError("");
     try {
-      const data = await getMyAppointmentsService(user.role, {
+      const data = await getMyAppointmentsService(user?.role, {
         page,
         pageSize: 10,
         status: status || undefined,
@@ -89,6 +138,7 @@ export default function AppointmentsPage() {
   };
 
   useEffect(() => {
+    loadCurrentUser();
     loadAppointments(1);
     loadData();
   }, []);
@@ -119,11 +169,16 @@ export default function AppointmentsPage() {
   );
   const selectedDoctor = doctors.find((d) => `${d.doctorId}` === `${selectedDoctorId}`);
   const appointmentDateTime =
-    appointmentDate && selectedTime ? `${appointmentDate}T${selectedTime}` : "";
+    selectedDate && selectedTime ? `${selectedDate}T${selectedTime}` : "";
 
   const handleOpenConfirm = () => {
-    if (!selectedDoctorId || !appointmentDate || !selectedTime) {
+    if (!selectedDoctorId || !selectedDate || !selectedTime) {
       toast.error("Vui lòng chọn đầy đủ chuyên khoa, bác sĩ, ngày và giờ khám");
+      return;
+    }
+    const selectedDateTime = dayjs(`${selectedDate}T${selectedTime}`);
+    if (selectedDateTime.isBefore(dayjs())) {
+      toast.error("Không thể đặt lịch khám trong quá khứ");
       return;
     }
     setShowConfirm(true);
@@ -140,7 +195,7 @@ export default function AppointmentsPage() {
       setShowConfirm(false);
       setSelectedDepartmentId("");
       setSelectedDoctorId("");
-      setAppointmentDate("");
+      setSelectedDate("");
       setSelectedTime("");
       setSymptoms("");
       await loadAppointments(1);
@@ -151,8 +206,13 @@ export default function AppointmentsPage() {
     }
   };
 
-  const handleRowClick = (appointment) => {
-    setSelectedAppointment(appointment);
+  const handleRowClick = async (appointment) => {
+    try {
+      const fullAppointment = await getAppointmentByIdService(appointment.appointmentId);
+      setSelectedAppointment(fullAppointment);
+    } catch {
+      setSelectedAppointment(appointment);
+    }
     setShowDetailModal(true);
   };
 
@@ -189,6 +249,11 @@ export default function AppointmentsPage() {
       )
     : appointments;
 
+  const getPatientDisplayName = (appointment) => {
+    if (user?.role === "Patient") return currentUser?.fullName || "Bạn";
+    return appointment.patientName || "-";
+  };
+
   return (
     <>
       {user?.role === "Patient" && (
@@ -199,7 +264,7 @@ export default function AppointmentsPage() {
               <p>Chuyên khoa: {selectedDepartment?.departmentName || "-"}</p>
               <p>Bác sĩ: {selectedDoctor?.fullName || "-"}</p>
               <p>
-                Thời gian: {appointmentDate || "-"} - {selectedTime || "-"}
+                Thời gian: {selectedDate ? dateOptions.find(d => d.value === selectedDate)?.label.split(", ")[1] || selectedDate : "-"} - {selectedTime || "-"}
               </p>
             </div>
 
@@ -277,29 +342,49 @@ export default function AppointmentsPage() {
 
               <div className="booking-right">
                 <label className="booking-label">CHỌN NGÀY</label>
-                <input
-                  type="date"
-                  className="booking-date"
-                  value={appointmentDate}
-                  onChange={(e) => setAppointmentDate(e.target.value)}
-                />
+                <select
+                  className="booking-select"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    setSelectedTime("");
+                  }}
+                >
+                  <option value="">-- Chọn ngày khám --</option>
+                  {dateOptions.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
 
                 <label className="booking-label">CHỌN GIỜ</label>
-                <div className="booking-time-list">
-                  {TIME_SLOTS.map((slot) => {
-                    const active = slot === selectedTime;
-                    return (
-                      <button
-                        key={slot}
-                        type="button"
-                        className={active ? "booking-time active" : "booking-time"}
-                        onClick={() => setSelectedTime(slot)}
-                      >
-                        {slot}-{slot === "21:00" ? "21:30" : `${slot.slice(0, 2)}:30`}
-                      </button>
-                    );
-                  })}
-                </div>
+                {selectedDate ? (
+                  availableTimeSlots.length > 0 ? (
+                    <div className="booking-time-list">
+                      {availableTimeSlots.map((slot) => {
+                        const endMinute = slot.split(":")[1] === "30" ? "00" : "30";
+                        const endHour = slot.split(":")[1] === "30" ? String(Number(slot.split(":")[0]) + 1) : slot.split(":")[0];
+                        const endTime = `${endHour.padStart(2, "0")}:${endMinute}${slot.split(":")[1] === "30" ? "" : "30"}`;
+                        const active = slot === selectedTime;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            className={active ? "booking-time active" : "booking-time"}
+                            onClick={() => setSelectedTime(slot)}
+                          >
+                            {slot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="booking-no-slots">Không có giờ khám trong ngày này</p>
+                  )
+                ) : (
+                  <p className="booking-hint">Vui lòng chọn ngày khám trước</p>
+                )}
               </div>
             </div>
 
@@ -315,30 +400,31 @@ export default function AppointmentsPage() {
       <div className="card">
         <div className="table-toolbar">
           <h2>Lịch hẹn</h2>
-          <div className="table-toolbar-filters">
-            <SearchBar
-              placeholder="Tìm bác sĩ, bệnh nhân..."
-              value={searchTerm}
-              onChange={setSearchTerm}
-              onClear={() => setSearchTerm("")}
-            />
-            <select
-              className="table-filter-select"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              {STATUS_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              className="table-filter-date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              placeholder="Lọc theo ngày"
-            />
-          </div>
+        </div>
+
+        <div className="table-toolbar-filters">
+          <SearchBar
+            placeholder="Tìm bác sĩ, bệnh nhân..."
+            value={searchTerm}
+            onChange={setSearchTerm}
+            onClear={() => setSearchTerm("")}
+          />
+          <select
+            className="table-filter-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            {STATUS_FILTER_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <input
+            type="date"
+            className="table-filter-date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            placeholder="Lọc theo ngày"
+          />
         </div>
 
         <PageState
@@ -351,8 +437,8 @@ export default function AppointmentsPage() {
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Bệnh nhân</th>
-                <th>Bác sĩ</th>
+                {user?.role !== "Patient" && <th>Bệnh nhân</th>}
+                {user?.role === "Patient" && <th>Bác sĩ</th>}
                 <th>Khoa</th>
                 <th>Thời gian</th>
                 <th>Trạng thái</th>
@@ -362,9 +448,12 @@ export default function AppointmentsPage() {
               {displayedAppointments.map((a) => (
                 <tr key={a.appointmentId} onClick={() => handleRowClick(a)} style={{ cursor: "pointer" }}>
                   <td>{a.appointmentId}</td>
-                  <td>{a.patientName}</td>
-                  <td>{a.doctorName}</td>
-                  <td>{a.departmentName}</td>
+                  {user?.role === "Patient" ? (
+                    <td>{a.doctorName || "-"}</td>
+                  ) : (
+                    <td>{a.patientName || "-"}</td>
+                  )}
+                  <td>{a.departmentName || "-"}</td>
                   <td>{a.appointmentTimeText}</td>
                   <td><StatusBadge status={a.status} /></td>
                 </tr>
@@ -387,6 +476,7 @@ export default function AppointmentsPage() {
           isOpen={showDetailModal}
           onClose={() => setShowDetailModal(false)}
           userRole={user?.role}
+          currentUserName={currentUser?.fullName}
           onStatusUpdate={handleStatusUpdate}
           onCancel={handleCancel}
           updating={updating}
@@ -407,13 +497,15 @@ export default function AppointmentsPage() {
   );
 }
 
-function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, onStatusUpdate, onCancel, updating }) {
+function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, currentUserName, onStatusUpdate, onCancel, updating }) {
   const isPending = appointment.status === "Pending";
   const isConfirmed = appointment.status === "Confirmed";
   const isCompleted = appointment.status === "Completed";
   const isCancelled = appointment.status === "Cancelled";
   const isPatient = userRole === "Patient";
   const isDoctor = userRole === "Doctor";
+
+  const patientName = isPatient ? (currentUserName || "Bạn") : (appointment.patientName || "-");
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Chi tiết lịch hẹn" size="md">
@@ -424,15 +516,15 @@ function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, onStat
         </div>
         <div className="detail-row">
           <span className="detail-label">Bệnh nhân</span>
-          <span className="detail-value">{appointment.patientName}</span>
+          <span className="detail-value">{patientName}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">Bác sĩ</span>
-          <span className="detail-value">{appointment.doctorName}</span>
+          <span className="detail-value">{appointment.doctorName || "-"}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">Khoa</span>
-          <span className="detail-value">{appointment.departmentName}</span>
+          <span className="detail-value">{appointment.departmentName || "-"}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">Thời gian</span>

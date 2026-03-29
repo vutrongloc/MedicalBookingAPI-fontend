@@ -43,14 +43,7 @@ export default function AppRoutes() {
         <Route path="doctors" element={<DoctorsPage />} />
         <Route path="doctors/:id" element={<DoctorDetailPage />} />
         <Route path="appointments" element={<AppointmentsPage />} />
-        <Route
-          path="medical-records"
-          element={
-            <ProtectedRoute roles={["Admin", "Doctor"]}>
-              <MedicalRecordsPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="medical-records" element={<MedicalRecordsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route
           path="admin"

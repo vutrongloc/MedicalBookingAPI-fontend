@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import NotificationBell from "./NotificationBell";
+import { useState, useRef, useEffect } from "react";
 
 const menuItems = [
   { to: "/", label: "Trang chủ" },
@@ -14,10 +15,32 @@ const menuItems = [
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const avatarRef = useRef(null);
 
   const handleLogout = () => {
     logout();
     navigate("/login");
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (avatarRef.current && !avatarRef.current.contains(e.target)) {
+        setAvatarOpen(false);
+      }
+    };
+    if (avatarOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [avatarOpen]);
+
+  const roleLabel = {
+    Admin: "Quản trị viên",
+    Doctor: "Bác sĩ",
+    Patient: "Bệnh nhân",
   };
 
   return (
@@ -32,15 +55,67 @@ export default function AppLayout() {
             <div>
               <strong className="topbar-title">Medical Booking Hospital</strong>
               <div className="topbar-subtitle">
-                Xin chào, {user?.fullName} ({user?.role})
+                Xin chào, {user?.fullName}
               </div>
             </div>
           </div>
           <div className="topbar-right">
             <NotificationBell />
-            <button className="btn secondary topbar-logout" onClick={handleLogout}>
-              Đăng xuất
-            </button>
+            <div className="avatar-wrapper" ref={avatarRef}>
+              <button
+                className="avatar-btn"
+                onClick={() => setAvatarOpen(!avatarOpen)}
+                aria-label="Tài khoản"
+              >
+                <div className="avatar-circle">
+                  {user?.fullName?.charAt(0)?.toUpperCase() || "?"}
+                </div>
+              </button>
+              {avatarOpen && (
+                <div className="avatar-dropdown">
+                  <div className="avatar-dropdown-header">
+                    <div className="avatar-dropdown-name">{user?.fullName}</div>
+                    <div className="avatar-dropdown-email">{user?.email}</div>
+                    <span className={`role-badge role-badge--${user?.role?.toLowerCase()}`}>
+                      {roleLabel[user?.role] || user?.role}
+                    </span>
+                  </div>
+                  <div className="avatar-dropdown-divider" />
+                  <button
+                    className="avatar-dropdown-item"
+                    onClick={() => { setAvatarOpen(false); navigate("/profile"); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                      <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    Thông tin tài khoản
+                  </button>
+                  <button
+                    className="avatar-dropdown-item"
+                    onClick={() => { setAvatarOpen(false); navigate("/profile"); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    Đổi mật khẩu
+                  </button>
+                  <div className="avatar-dropdown-divider" />
+                  <button
+                    className="avatar-dropdown-item avatar-dropdown-item--danger"
+                    onClick={handleLogout}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                      <polyline points="16 17 21 12 16 7"/>
+                      <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    Đăng xuất
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -48,9 +123,6 @@ export default function AppLayout() {
         <nav className="menu">
           {menuItems
             .filter((item) => {
-              if (user?.role === "Patient") {
-                return item.to !== "/medical-records";
-              }
               if (item.to === "/profile") return false;
               return true;
             })

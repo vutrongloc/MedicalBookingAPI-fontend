@@ -2,10 +2,11 @@ import { axiosClient } from "../axiosClient";
 import { unwrapApiResponse } from "./baseService";
 import { mapKeysPascalToCamel, normalizeNullable } from "../../utils/mappers";
 
-export async function getCurrentUserService() {
-  const res = await axiosClient.get("/api/Users/me");
-  const body = unwrapApiResponse(res);
-  const user = mapKeysPascalToCamel(body.data);
+/** Backend UserDetailDto nests patient/doctor; flatten for the UI and auth merge. */
+function mapUserDetailDto(bodyData) {
+  const user = mapKeysPascalToCamel(bodyData);
+  const patient = user.patient || null;
+  const doctor = user.doctor || null;
 
   return {
     userId: user.userId,
@@ -13,14 +14,20 @@ export async function getCurrentUserService() {
     email: normalizeNullable(user.email, "-"),
     phone: normalizeNullable(user.phone, ""),
     role: normalizeNullable(user.role, "Patient"),
-    dateOfBirth: user.dateOfBirth || null,
-    gender: normalizeNullable(user.gender, ""),
-    patientId: user.patientId || null,
-    doctorId: user.doctorId || null,
-    departmentId: user.departmentId || null,
-    departmentName: normalizeNullable(user.departmentName, ""),
-    qualification: normalizeNullable(user.qualification, ""),
+    dateOfBirth: patient?.dateOfBirth ?? null,
+    gender: normalizeNullable(patient?.gender, ""),
+    patientId: patient?.patientId ?? null,
+    doctorId: doctor?.doctorId ?? null,
+    departmentId: doctor?.departmentId ?? null,
+    departmentName: normalizeNullable(doctor?.departmentName, ""),
+    qualification: normalizeNullable(doctor?.qualification, ""),
   };
+}
+
+export async function getCurrentUserService() {
+  const res = await axiosClient.get("/api/Users/me");
+  const body = unwrapApiResponse(res);
+  return mapUserDetailDto(body.data);
 }
 
 export async function updateCurrentUserService(form) {
@@ -33,15 +40,16 @@ export async function updateCurrentUserService(form) {
 
   const res = await axiosClient.put("/api/Users/me", payload);
   const body = unwrapApiResponse(res);
-  return mapKeysPascalToCamel(body.data);
+  return mapUserDetailDto(body.data);
 }
 
 export async function changePasswordService(form) {
   const payload = {
-    currentPassword: form.currentPassword,
+    oldPassword: form.oldPassword,
     newPassword: form.newPassword,
+    confirmPassword: form.newPassword,
   };
-  const res = await axiosClient.post("/api/Auth/change-password", payload);
+  const res = await axiosClient.put("/api/Auth/change-password", payload);
   return unwrapApiResponse(res);
 }
 
