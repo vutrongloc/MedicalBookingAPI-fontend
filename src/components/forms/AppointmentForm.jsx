@@ -1,6 +1,9 @@
 import { useForm } from "react-hook-form";
+import { useCooldown } from "../../hooks/useCooldown";
 
-export default function AppointmentForm({ doctors, onSubmit, loading }) {
+export default function AppointmentForm({ doctors, onSubmit, loading: externalLoading }) {
+  const { isLocked, run: runSubmit } = useCooldown(3000);
+  const loading = externalLoading || isLocked;
   const {
     register,
     handleSubmit,
@@ -13,9 +16,11 @@ export default function AppointmentForm({ doctors, onSubmit, loading }) {
     },
   });
 
-  const submitHandler = async (values) => {
-    await onSubmit(values);
-    reset();
+  const submitHandler = (values) => {
+    runSubmit(async () => {
+      await onSubmit(values);
+      reset();
+    });
   };
 
   return (

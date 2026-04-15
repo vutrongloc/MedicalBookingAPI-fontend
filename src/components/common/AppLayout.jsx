@@ -1,6 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
-import NotificationBell from "./NotificationBell";
 import { useState, useRef, useEffect } from "react";
 
 const menuItems = [
@@ -8,7 +7,8 @@ const menuItems = [
   { to: "/departments", label: "Khoa khám" },
   { to: "/doctors", label: "Bác sĩ" },
   { to: "/appointments", label: "Lịch hẹn" },
-  { to: "/medical-records", label: "Hồ sơ bệnh án" },
+  { to: "/ai-chat", label: "Trợ lý AI", roles: ["Patient"] },
+  { to: "/medical-records", label: "Hồ sơ bệnh án", roles: ["Patient", "Doctor"] },
   { to: "/profile", label: "Hồ sơ" },
 ];
 
@@ -60,7 +60,6 @@ export default function AppLayout() {
             </div>
           </div>
           <div className="topbar-right">
-            <NotificationBell />
             <div className="avatar-wrapper" ref={avatarRef}>
               <button
                 className="avatar-btn"
@@ -124,6 +123,8 @@ export default function AppLayout() {
           {menuItems
             .filter((item) => {
               if (item.to === "/profile") return false;
+              if (item.to === "/appointments" && user?.role === "Admin") return false;
+              if (item.roles && !item.roles.includes(user?.role)) return false;
               return true;
             })
             .map((item) => (

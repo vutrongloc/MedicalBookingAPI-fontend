@@ -1,374 +1,397 @@
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { getMedicalRecordsService, createMedicalRecordService, updateMedicalRecordService } from "../api/services/medicalRecordService";
-import { getMyAppointmentsService } from "../api/services/appointmentService";
-import { useAuth } from "../hooks/useAuth";
 import PageState from "../components/common/PageState";
+import { useAuth } from "../hooks/useAuth";
+import {
+  getMyMedicalRecordsService,
+  getDoctorMedicalRecordsService,
+  getMedicalRecordByIdService,
+  updateMedicalRecordService,
+} from "../api/services/medicalRecordService";
 import Modal from "../components/common/Modal";
-import Pagination from "../components/common/Pagination";
+import SearchBar from "../components/common/SearchBar";
+import { useCooldown } from "../hooks/useCooldown";
 
 export default function MedicalRecordsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const isDoctor = user?.role === "Doctor";
+  const isPatient = user?.role === "Patient";
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [items, setItems] = useState([]);
-  const [totalPages, setTotalPages] = useState(1);
+  const [allRecords, setAllRecords] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const loadRecords = async (page = 1) => {
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
+  const PAGE_SIZE = 10;
+
+  const loadRecords = async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await getMedicalRecordsService(user?.role, { page, pageSize: 10 });
-      setItems(data.items);
-      setTotalPages(data.totalPages);
-      setCurrentPage(data.page);
+      const data = isDoctor
+        ? await getDoctorMedicalRecordsService()
+        : await getMyMedicalRecordsService();
+      setAllRecords(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e?.message || "Không thể tải bệnh án");
+      setError(e?.message || "Không thể tải hồ sơ bệnh án");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRecords(1);
-  }, [user?.role]);
+    loadRecords();
+  }, [isDoctor]);
 
-  const handleRowClick = (record) => {
-    setSelectedRecord(record);
-    setIsEditing(false);
+  const filteredRecords = useMemo(() => {
+    const term = (searchTerm || "").toLowerCase().trim();
+    if (!term) return allRecords;
+    return allRecords.filter((r) => {
+      if (isPatient) {
+        return [
+          r.doctorName || "",
+          r.departmentName || "",
+          r.doctorDiagnosis || "",
+        ].some((f) => f.toLowerCase().includes(term));
+      } else {
+        return [
+          r.patientName || "",
+          r.departmentName || "",
+          r.doctorDiagnosis || "",
+        ].some((f) => f.toLowerCase().includes(term));
+      }
+    });
+  }, [allRecords, searchTerm, isPatient]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
+
+  const displayedRecords = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredRecords.slice(start, start + PAGE_SIZE);
+  }, [filteredRecords, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleRowClick = async (record) => {
+    try {
+      const fullRecord = await getMedicalRecordByIdService(record.medicalRecordId);
+      setSelectedRecord(fullRecord);
+    } catch {
+      setSelectedRecord(record);
+    }
     setShowDetailModal(true);
+  };
+
+  const handleCreateNew = () => {
+    navigate("/medical-records/create");
+  };
+
+  const handleRecordUpdated = () => {
+    setShowDetailModal(false);
+    loadRecords();
   };
 
   return (
     <>
-      <PageState
-        loading={loading}
-        error={error}
-        empty={false}
-      >
-        <div className="card">
-          <div className="table-toolbar">
-            <h2>Hồ sơ bệnh án</h2>
-            {user?.role === "Doctor" && (
-              <button className="btn" onClick={() => setShowCreateModal(true)}>
-                Tạo bệnh án mới
-              </button>
-            )}
-          </div>
-
-          {items.length === 0 ? (
-            <p className="records-empty-hint">Chưa có hồ sơ bệnh án</p>
-          ) : (
-            <>
-              <table className="table table-clickable">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    {user?.role !== "Patient" && <th>Bệnh nhân</th>}
-                    <th>Bác sĩ</th>
-                    <th>Khoa</th>
-                    <th>Chẩn đoán</th>
-                    <th>Điều trị</th>
-                    <th>Đơn thuốc</th>
-                    <th>Ngày khám</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((r) => (
-                    <tr key={r.medicalRecordId} onClick={() => handleRowClick(r)} style={{ cursor: "pointer" }}>
-                      <td>{r.medicalRecordId}</td>
-                      {user?.role !== "Patient" && <td>{r.patientName || "-"}</td>}
-                      <td>{r.doctorName}</td>
-                      <td>{r.departmentName}</td>
-                      <td className="text-truncate" style={{ maxWidth: 150 }} title={r.doctorDiagnosis}>{r.doctorDiagnosis || "-"}</td>
-                      <td className="text-truncate" style={{ maxWidth: 150 }} title={r.treatment}>{r.treatment || "-"}</td>
-                      <td className="text-truncate" style={{ maxWidth: 150 }} title={r.prescription}>{r.prescription || "-"}</td>
-                      <td>{r.appointmentTimeText}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={(p) => loadRecords(p)}
-              />
-            </>
+      <div className="card">
+        <div className="table-toolbar">
+          <h2>Hồ sơ bệnh án</h2>
+          {isDoctor && (
+            <button className="btn" onClick={handleCreateNew}>
+              Tạo hồ sơ bệnh án
+            </button>
           )}
         </div>
-      </PageState>
 
-      {showCreateModal && (
-        <CreateMedicalRecordModal
-          isOpen={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={async () => {
-            setShowCreateModal(false);
-            await loadRecords(1);
-          }}
-        />
-      )}
+        <div className="table-toolbar-filters">
+          <SearchBar
+            placeholder={
+              isPatient
+                ? "Tìm bác sĩ, khoa, chẩn đoán..."
+                : "Tìm bệnh nhân, khoa, chẩn đoán..."
+            }
+            value={searchTerm}
+            onChange={setSearchTerm}
+            onClear={() => setSearchTerm("")}
+          />
+        </div>
 
-      {showDetailModal && selectedRecord && (
+        <PageState
+          loading={loading}
+          error={error}
+          empty={!displayedRecords.length}
+          emptyText="Chưa có hồ sơ bệnh án"
+        >
+          <table className="table table-clickable">
+            <thead>
+              <tr>
+                <th>STT</th>
+                {isPatient && <th>Bác sĩ</th>}
+                {isDoctor && <th>Bệnh nhân</th>}
+                <th>Khoa</th>
+                <th>Ngày khám</th>
+                <th>Chẩn đoán</th>
+                <th>Ngày tạo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedRecords.map((r, index) => (
+                <tr
+                  key={r.medicalRecordId}
+                  onClick={() => handleRowClick(r)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <td>{index + 1 + (currentPage - 1) * PAGE_SIZE}</td>
+                  {isPatient ? (
+                    <td>{r.doctorName || "-"}</td>
+                  ) : (
+                    <td>{r.patientName || "-"}</td>
+                  )}
+                  <td>{r.departmentName || "-"}</td>
+                  <td>{r.appointmentTimeText || "-"}</td>
+                  <td>
+                    {r.doctorDiagnosis
+                      ? r.doctorDiagnosis.length > 50
+                        ? r.doctorDiagnosis.substring(0, 50) + "..."
+                        : r.doctorDiagnosis
+                      : "-"}
+                  </td>
+                  <td>{r.createdAtText || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {totalPages > 1 && (
+            <div className="pagination">
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                &laquo;
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  className={`pagination-page ${currentPage === page ? "active" : ""}`}
+                  onClick={() => handlePageChange(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                &raquo;
+              </button>
+            </div>
+          )}
+        </PageState>
+      </div>
+
+      {selectedRecord && (
         <MedicalRecordDetailModal
           record={selectedRecord}
           isOpen={showDetailModal}
-          onClose={() => { setShowDetailModal(false); setIsEditing(false); }}
-          onEdit={() => setIsEditing(true)}
-          onViewMode={() => setIsEditing(false)}
-          isEditing={isEditing}
-          userRole={user?.role}
-          onSuccess={async () => {
-            setShowDetailModal(false);
-            setIsEditing(false);
-            await loadRecords(currentPage);
-          }}
+          onClose={() => setShowDetailModal(false)}
+          isDoctor={isDoctor}
+          onRecordUpdated={handleRecordUpdated}
         />
       )}
     </>
   );
 }
 
-function CreateMedicalRecordModal({ isOpen, onClose, onSuccess }) {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [appointments, setAppointments] = useState([]);
+function MedicalRecordDetailModal({ record, isOpen, onClose, isDoctor, onRecordUpdated }) {
+  const [isEditing, setIsEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const { register, handleSubmit, reset, formState: { errors } } = useForm();
+  const { isLocked: submitLocked, run: runSubmit } = useCooldown(3000);
+
+  const [doctorDiagnosis, setDoctorDiagnosis] = useState(record?.doctorDiagnosis || "");
+  const [treatment, setTreatment] = useState(record?.treatment || "");
+  const [prescription, setPrescription] = useState(record?.prescription || "");
 
   useEffect(() => {
-    if (isOpen) {
-      loadCompletedAppointments();
+    if (record) {
+      setDoctorDiagnosis(record.doctorDiagnosis || "");
+      setTreatment(record.treatment || "");
+      setPrescription(record.prescription || "");
+      setIsEditing(false);
     }
-  }, [isOpen]);
+  }, [record]);
 
-  const loadCompletedAppointments = async () => {
-    setLoading(true);
-    try {
-      const data = await getMyAppointmentsService("Doctor", { pageSize: 100 });
-      const completed = (data.items || []).filter((a) => a.status === "Completed");
-      setAppointments(completed);
-    } catch {
-      toast.error("Không thể tải lịch hẹn");
-    } finally {
-      setLoading(false);
+  const handleSave = () => {
+    if (!doctorDiagnosis.trim()) {
+      toast.error("Vui lòng nhập chẩn đoán");
+      return;
     }
+
+    runSubmit(async () => {
+      setSubmitting(true);
+      try {
+        const form = {
+          appointmentId: record.appointmentId,
+          doctorDiagnosis: doctorDiagnosis.trim(),
+          treatment: treatment.trim() || "",
+          prescription: prescription.trim() || "",
+        };
+        await updateMedicalRecordService(record.medicalRecordId, form);
+        toast.success("Cập nhật hồ sơ bệnh án thành công");
+        setIsEditing(false);
+        if (onRecordUpdated) onRecordUpdated();
+      } catch (e) {
+        toast.error(e?.message || "Cập nhật thất bại");
+      } finally {
+        setSubmitting(false);
+      }
+    });
   };
 
-  const onSubmit = async (formData) => {
-    setSubmitting(true);
-    try {
-      await createMedicalRecordService(formData);
-      toast.success("Tạo bệnh án thành công");
-      reset();
-      onSuccess();
-    } catch (e) {
-      toast.error(e?.message || "Tạo bệnh án thất bại");
-    } finally {
-      setSubmitting(false);
-    }
+  const handleCancel = () => {
+    setIsEditing(false);
+    setDoctorDiagnosis(record?.doctorDiagnosis || "");
+    setTreatment(record?.treatment || "");
+    setPrescription(record?.prescription || "");
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Tạo bệnh án mới" size="lg">
-      <form onSubmit={handleSubmit(onSubmit)} className="medical-record-form">
-        <div className="field">
-          <label className="field-label">Lịch hẹn đã khám <span className="required">*</span></label>
-          <select
-            {...register("appointmentId", { required: "Vui lòng chọn lịch hẹn" })}
-            className={errors.appointmentId ? "input-error" : ""}
-            disabled={loading}
-          >
-            <option value="">-- Chọn lịch hẹn --</option>
-            {appointments.map((a) => (
-              <option key={a.appointmentId} value={a.appointmentId}>
-                #{a.appointmentId} - {a.patientName} - {a.appointmentTimeText}
-              </option>
-            ))}
-          </select>
-          {errors.appointmentId && <span className="error-text">{errors.appointmentId.message}</span>}
-          {appointments.length === 0 && !loading && (
-            <span className="error-text">Không có lịch hẹn nào đã hoàn thành</span>
-          )}
-        </div>
-
-        <div className="field">
-          <label className="field-label">Chẩn đoán</label>
-          <textarea
-            {...register("doctorDiagnosis")}
-            placeholder="Nhập chẩn đoán..."
-            rows={3}
-          />
-        </div>
-
-        <div className="field">
-          <label className="field-label">Điều trị</label>
-          <textarea
-            {...register("treatment")}
-            placeholder="Nhập phương pháp điều trị..."
-            rows={3}
-          />
-        </div>
-
-        <div className="field">
-          <label className="field-label">Đơn thuốc</label>
-          <textarea
-            {...register("prescription")}
-            placeholder="Nhập đơn thuốc..."
-            rows={3}
-          />
-        </div>
-
-        <div className="modal-form-actions">
-          <button type="button" className="btn secondary" onClick={onClose} disabled={submitting}>Hủy</button>
-          <button type="submit" className="btn" disabled={submitting || appointments.length === 0}>
-            {submitting ? "Đang lưu..." : "Tạo bệnh án"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function MedicalRecordDetailModal({ record, isOpen, onClose, onEdit, onViewMode, isEditing, userRole, onSuccess }) {
-  const [submitting, setSubmitting] = useState(false);
-  const { register, handleSubmit, reset, formState: { errors } } = useForm();
-
-  useEffect(() => {
-    if (isOpen && record) {
-      reset({
-        doctorDiagnosis: record.doctorDiagnosis || "",
-        treatment: record.treatment || "",
-        prescription: record.prescription || "",
-      });
-    }
-  }, [isOpen, record]);
-
-  const onSubmit = async (formData) => {
-    setSubmitting(true);
-    try {
-      await updateMedicalRecordService(record.medicalRecordId, formData);
-      toast.success("Cập nhật bệnh án thành công");
-      onSuccess();
-    } catch (e) {
-      toast.error(e?.message || "Cập nhật thất bại");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const isDoctor = userRole === "Doctor";
-
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={isEditing ? "Sửa bệnh án" : "Chi tiết bệnh án"}
-      size="lg"
-    >
-      <form onSubmit={handleSubmit(onSubmit)} className="medical-record-form">
-        <div className="record-detail-info">
-          <div className="detail-row">
-            <span className="detail-label">ID bệnh án</span>
-            <span className="detail-value">#{record.medicalRecordId}</span>
+    <Modal isOpen={isOpen} onClose={onClose} title="Chi tiết hồ sơ bệnh án" size="lg">
+      <div className="medical-record-detail">
+        <div className="medical-record-info-grid">
+          <div className="medical-record-info-item">
+            <span className="info-label">Mã lịch hẹn</span>
+            <span className="info-value">#{record?.appointmentId}</span>
           </div>
-          {userRole !== "Patient" && (
-            <div className="detail-row">
-              <span className="detail-label">Bệnh nhân</span>
-              <span className="detail-value">{record.patientName || "-"}</span>
+          <div className="medical-record-info-item">
+            <span className="info-label">Ngày khám</span>
+            <span className="info-value">{record?.appointmentTimeText || "-"}</span>
+          </div>
+          {isDoctor ? (
+            <div className="medical-record-info-item">
+              <span className="info-label">Bệnh nhân</span>
+              <span className="info-value">{record?.patientName || "-"}</span>
             </div>
-          )}
-          <div className="detail-row">
-            <span className="detail-label">Bác sĩ</span>
-            <span className="detail-value">{record.doctorName}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">Khoa</span>
-            <span className="detail-value">{record.departmentName}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">Ngày khám</span>
-            <span className="detail-value">{record.appointmentTimeText}</span>
-          </div>
-        </div>
-
-        <div className="field">
-          <label className="field-label">Chẩn đoán</label>
-          {isEditing ? (
-            <textarea
-              {...register("doctorDiagnosis")}
-              placeholder="Nhập chẩn đoán..."
-              rows={3}
-            />
           ) : (
-            <div className="medical-record-display">
-              {record.doctorDiagnosis || "Chưa có chẩn đoán"}
+            <div className="medical-record-info-item">
+              <span className="info-label">Bác sĩ</span>
+              <span className="info-value">{record?.doctorName || "-"}</span>
             </div>
           )}
+          <div className="medical-record-info-item">
+            <span className="info-label">Khoa</span>
+            <span className="info-value">{record?.departmentName || "-"}</span>
+          </div>
         </div>
 
-        <div className="field">
-          <label className="field-label">Điều trị</label>
-          {isEditing ? (
-            <textarea
-              {...register("treatment")}
-              placeholder="Nhập phương pháp điều trị..."
-              rows={3}
-            />
-          ) : (
-            <div className="medical-record-display">
-              {record.treatment || "Chưa có phương pháp điều trị"}
-            </div>
-          )}
+        <div className="medical-record-form-section">
+          <h4 className="section-title">Thông tin y tế</h4>
+
+          <div className="form-group">
+            <label className="form-label">Chẩn đoán</label>
+            {isEditing || isDoctor ? (
+              <textarea
+                className="form-textarea"
+                value={doctorDiagnosis}
+                onChange={(e) => setDoctorDiagnosis(e.target.value)}
+                placeholder="Nhập chẩn đoán..."
+                rows={3}
+              />
+            ) : (
+              <div className="medical-record-text">
+                {record?.doctorDiagnosis || "-"}
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Phương pháp điều trị</label>
+            {isEditing || isDoctor ? (
+              <textarea
+                className="form-textarea"
+                value={treatment}
+                onChange={(e) => setTreatment(e.target.value)}
+                placeholder="Nhập phương pháp điều trị..."
+                rows={3}
+              />
+            ) : (
+              <div className="medical-record-text">
+                {record?.treatment || "-"}
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Đơn thuốc</label>
+            {isEditing || isDoctor ? (
+              <textarea
+                className="form-textarea"
+                value={prescription}
+                onChange={(e) => setPrescription(e.target.value)}
+                placeholder="Nhập đơn thuốc..."
+                rows={3}
+              />
+            ) : (
+              <div className="medical-record-text">
+                {record?.prescription || "-"}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="field">
-          <label className="field-label">Đơn thuốc</label>
-          {isEditing ? (
-            <textarea
-              {...register("prescription")}
-              placeholder="Nhập đơn thuốc..."
-              rows={3}
-            />
-          ) : (
-            <div className="medical-record-display">
-              {record.prescription || "Chưa có đơn thuốc"}
-            </div>
-          )}
-        </div>
-
-        <div className="modal-form-actions">
-          <button type="button" className="btn secondary" onClick={onClose} disabled={submitting}>Đóng</button>
-          {isDoctor && !isEditing && (
-            <button type="button" className="btn" onClick={onEdit}>
-              Sửa bệnh án
-            </button>
-          )}
-          {isDoctor && isEditing && (
+        <div className="detail-actions">
+          {isDoctor && (
             <>
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={() => { reset({ doctorDiagnosis: record.doctorDiagnosis, treatment: record.treatment, prescription: record.prescription }); onViewMode(); }}
-                disabled={submitting}
-              >
-                Hủy
-              </button>
-              <button type="submit" className="btn" disabled={submitting}>
-                {submitting ? "Đang lưu..." : "Lưu thay đổi"}
-              </button>
+              {isEditing ? (
+                <>
+                  <button
+                    className="btn"
+                    onClick={handleSave}
+                    disabled={submitting || submitLocked}
+                  >
+                    {submitting || submitLocked ? "Đang lưu..." : "Lưu thay đổi"}
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={handleCancel}
+                    disabled={submitting}
+                  >
+                    Hủy
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn"
+                  onClick={() => setIsEditing(true)}
+                >
+                  Sửa hồ sơ
+                </button>
+              )}
             </>
           )}
+          <button className="btn secondary" onClick={onClose}>
+            Đóng
+          </button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }

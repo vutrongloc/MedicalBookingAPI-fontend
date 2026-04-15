@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import PageState from "../components/common/PageState";
@@ -15,9 +15,9 @@ import { getDepartmentsService } from "../api/services/departmentService";
 import { getCurrentUserService } from "../api/services/userService";
 import Modal from "../components/common/Modal";
 import StatusBadge from "../components/common/StatusBadge";
-import Pagination from "../components/common/Pagination";
 import SearchBar from "../components/common/SearchBar";
 import ConfirmDialog from "../components/common/ConfirmDialog";
+import { useCooldown } from "../hooks/useCooldown";
 import dayjs from "dayjs";
 
 const STATUS_FILTER_OPTIONS = [
@@ -29,19 +29,6 @@ const STATUS_FILTER_OPTIONS = [
 ];
 
 const ALL_TIME_SLOTS = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00"];
-
-function generateNext30Days() {
-  const days = [];
-  for (let i = 0; i < 30; i++) {
-    const date = dayjs().add(i, "day");
-    const dayOfWeek = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"][date.day()];
-    days.push({
-      value: date.format("YYYY-MM-DD"),
-      label: `Thứ ${dayOfWeek.slice(3)}, ${date.format("DD/MM/YYYY")}`,
-    });
-  }
-  return days;
-}
 
 function getAvailableTimeSlots(selectedDate) {
   const now = dayjs();
@@ -66,14 +53,12 @@ export default function AppointmentsPage() {
   const initialDoctorId = searchParams.get("doctorId") || "";
 
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const [appointments, setAppointments] = useState([]);
-  const [totalPages, setTotalPages] = useState(1);
+  const [allAppointments, setAllAppointments] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [patientSearch, setPatientSearch] = useState("");
 
   const [doctors, setDoctors] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -86,13 +71,17 @@ export default function AppointmentsPage() {
 
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [updating, setUpdating] = useState(false);
+  const { isLocked: createCooldownLocked, run: runCreate } = useCooldown(3000);
+  const { isLocked: bookCooldownLocked, run: runBook } = useCooldown(3000);
+  const { isLocked: updateLocked, run: runUpdate } = useCooldown(3000);
+  const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
 
   const [currentUser, setCurrentUser] = useState(null);
 
-  const dateOptions = generateNext30Days();
   const availableTimeSlots = getAvailableTimeSlots(selectedDate);
+  const todayStr = dayjs().format("YYYY-MM-DD");
+  const PAGE_SIZE = 10;
 
   const loadCurrentUser = async () => {
     if (user?.role !== "Patient") return;
@@ -104,19 +93,15 @@ export default function AppointmentsPage() {
     }
   };
 
-  const loadAppointments = async (page = 1, status = statusFilter, date = dateFilter) => {
+  const loadAllAppointments = async () => {
     setLoading(true);
     setError("");
     try {
       const data = await getMyAppointmentsService(user?.role, {
-        page,
-        pageSize: 10,
-        status: status || undefined,
-        fromDate: date || undefined,
+        page: 1,
+        pageSize: 1000,
       });
-      setAppointments(data.items);
-      setTotalPages(data.totalPages);
-      setCurrentPage(data.page);
+      setAllAppointments(data.items || []);
     } catch (e) {
       setError(e?.message || "Không thể tải lịch hẹn");
     } finally {
@@ -127,8 +112,8 @@ export default function AppointmentsPage() {
   const loadData = async () => {
     try {
       const [doctorList, departmentList] = await Promise.all([
-        getDoctorsService(),
-        getDepartmentsService(),
+        getDoctorsService({ page: 1, pageSize: 1000 }),
+        getDepartmentsService({ page: 1, pageSize: 1000 }),
       ]);
       setDoctors(doctorList.items || doctorList);
       setDepartments(departmentList.items || departmentList);
@@ -137,18 +122,48 @@ export default function AppointmentsPage() {
     }
   };
 
+  const filteredAppointments = useMemo(() => {
+    const searchLower = (patientSearch || "").toLowerCase().trim();
+    return allAppointments.filter((a) => {
+      const matchesStatus = !statusFilter || a.status === statusFilter;
+      const matchesDate = !dateFilter || (a.appointmentDate || a.appointmentTime || "").startsWith(dateFilter);
+      let matchesSearch = true;
+      if (searchLower) {
+        if (user?.role === "Patient") {
+          matchesSearch = [(a.doctorName || ""), (a.departmentName || "")]
+            .some((field) => field.toLowerCase().includes(searchLower));
+        } else {
+          matchesSearch = (a.patientName || "").toLowerCase().includes(searchLower);
+        }
+      }
+      return matchesStatus && matchesDate && matchesSearch;
+    });
+  }, [allAppointments, patientSearch, statusFilter, dateFilter, user?.role]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAppointments.length / PAGE_SIZE));
+
+  const displayedAppointments = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredAppointments.slice(start, start + PAGE_SIZE);
+  }, [filteredAppointments, currentPage]);
+
   useEffect(() => {
     loadCurrentUser();
-    loadAppointments(1);
+    loadAllAppointments();
     loadData();
   }, []);
 
   useEffect(() => {
-    const delay = setTimeout(() => {
-      loadAppointments(1, statusFilter, dateFilter);
-    }, 300);
-    return () => clearTimeout(delay);
-  }, [statusFilter, dateFilter]);
+    setCurrentPage(1);
+  }, [patientSearch, statusFilter, dateFilter]);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
 
   useEffect(() => {
     if (initialDoctorId) {
@@ -160,9 +175,11 @@ export default function AppointmentsPage() {
     }
   }, [initialDoctorId, doctors]);
 
-  const filteredDoctors = selectedDepartmentId
-    ? doctors.filter((d) => `${d.departmentId}` === `${selectedDepartmentId}`)
-    : doctors;
+  const filteredDoctors = useMemo(() => {
+    return selectedDepartmentId
+      ? doctors.filter((d) => `${d.departmentId}` === `${selectedDepartmentId}`)
+      : doctors;
+  }, [doctors, selectedDepartmentId]);
 
   const selectedDepartment = departments.find(
     (d) => `${d.departmentId}` === `${selectedDepartmentId}`
@@ -181,29 +198,31 @@ export default function AppointmentsPage() {
       toast.error("Không thể đặt lịch khám trong quá khứ");
       return;
     }
-    setShowConfirm(true);
+    runBook(() => setShowConfirm(true));
   };
 
-  const handleCreate = async () => {
-    try {
-      setCreating(true);
-      await createAppointmentService({
-        doctorId: selectedDoctorId,
-        appointmentTime: appointmentDateTime,
-      });
-      toast.success("Tạo lịch hẹn thành công");
-      setShowConfirm(false);
-      setSelectedDepartmentId("");
-      setSelectedDoctorId("");
-      setSelectedDate("");
-      setSelectedTime("");
-      setSymptoms("");
-      await loadAppointments(1);
-    } catch (e) {
-      toast.error(e?.message || "Tạo lịch hẹn thất bại");
-    } finally {
-      setCreating(false);
-    }
+  const handleCreate = () => {
+    runCreate(async () => {
+      setCreatingAppointment(true);
+      try {
+        await createAppointmentService({
+          doctorId: selectedDoctorId,
+          appointmentTime: appointmentDateTime,
+        });
+        toast.success("Tạo lịch hẹn thành công");
+        setShowConfirm(false);
+        setSelectedDepartmentId("");
+        setSelectedDoctorId("");
+        setSelectedDate("");
+        setSelectedTime("");
+        setSymptoms("");
+        await loadAllAppointments();
+      } catch (e) {
+        toast.error(e?.message || "Tạo lịch hẹn thất bại");
+      } finally {
+        setCreatingAppointment(false);
+      }
+    });
   };
 
   const handleRowClick = async (appointment) => {
@@ -216,42 +235,31 @@ export default function AppointmentsPage() {
     setShowDetailModal(true);
   };
 
-  const handleStatusUpdate = async (appointmentId, newStatus) => {
-    setUpdating(true);
-    try {
-      await updateAppointmentStatusService(appointmentId, newStatus);
-      toast.success("Cập nhật trạng thái thành công");
-      setShowDetailModal(false);
-      await loadAppointments(currentPage);
-    } catch (e) {
-      toast.error(e?.message || "Cập nhật thất bại");
-    } finally {
-      setUpdating(false);
-    }
+  const handleStatusUpdate = (appointmentId, newStatus) => {
+    runUpdate(async () => {
+      try {
+        await updateAppointmentStatusService(appointmentId, newStatus);
+        toast.success("Cập nhật trạng thái thành công");
+        setShowDetailModal(false);
+        await loadAllAppointments();
+      } catch (e) {
+        toast.error(e?.message || "Cập nhật thất bại");
+      }
+    });
   };
 
-  const handleCancel = async (appointmentId) => {
-    try {
-      await cancelAppointmentService(appointmentId);
-      toast.success("Hủy lịch hẹn thành công");
-      setShowDetailModal(false);
-      setConfirmAction(null);
-      await loadAppointments(currentPage);
-    } catch (e) {
-      toast.error(e?.message || "Hủy lịch hẹn thất bại");
-    }
-  };
-
-  const displayedAppointments = searchTerm
-    ? appointments.filter((a) =>
-        (a.patientName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (a.doctorName || "").toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : appointments;
-
-  const getPatientDisplayName = (appointment) => {
-    if (user?.role === "Patient") return currentUser?.fullName || "Bạn";
-    return appointment.patientName || "-";
+  const handleCancel = (appointmentId) => {
+    runUpdate(async () => {
+      try {
+        await cancelAppointmentService(appointmentId);
+        toast.success("Hủy lịch hẹn thành công");
+        setShowDetailModal(false);
+        setConfirmAction(null);
+        await loadAllAppointments();
+      } catch (e) {
+        toast.error(e?.message || "Hủy lịch hẹn thất bại");
+      }
+    });
   };
 
   return (
@@ -264,7 +272,7 @@ export default function AppointmentsPage() {
               <p>Chuyên khoa: {selectedDepartment?.departmentName || "-"}</p>
               <p>Bác sĩ: {selectedDoctor?.fullName || "-"}</p>
               <p>
-                Thời gian: {selectedDate ? dateOptions.find(d => d.value === selectedDate)?.label.split(", ")[1] || selectedDate : "-"} - {selectedTime || "-"}
+                Thời gian: {selectedDate ? dayjs(selectedDate).format("DD/MM/YYYY") : "-"} - {selectedTime || "-"}
               </p>
             </div>
 
@@ -280,13 +288,17 @@ export default function AppointmentsPage() {
             </p>
 
             <div className="booking-confirm-actions">
-              <button className="btn register-btn" onClick={handleCreate} disabled={creating}>
-                {creating ? "Đang xác nhận..." : "Xác nhận đặt lịch"}
+              <button
+                className="btn register-btn"
+                onClick={handleCreate}
+                disabled={creatingAppointment || createCooldownLocked || bookCooldownLocked}
+              >
+                {creatingAppointment || createCooldownLocked || bookCooldownLocked ? "Đang lưu..." : "Xác nhận đặt lịch"}
               </button>
               <button
                 className="btn secondary"
                 onClick={() => setShowConfirm(false)}
-                disabled={creating}
+                disabled={creatingAppointment || createCooldownLocked}
               >
                 Hủy
               </button>
@@ -315,15 +327,17 @@ export default function AppointmentsPage() {
                 </select>
 
                 <label className="booking-label">CHỌN BÁC SĨ</label>
+                
                 <select
                   className="booking-select"
                   value={selectedDoctorId}
                   onChange={(e) => setSelectedDoctorId(e.target.value)}
+                  style={{ marginTop: 8 }}
                 >
                   <option value="">-- Chọn bác sĩ --</option>
                   {filteredDoctors.map((d) => (
                     <option key={d.doctorId} value={d.doctorId}>
-                      {d.fullName}
+                      {d.fullName} - {d.departmentName}
                     </option>
                   ))}
                 </select>
@@ -342,30 +356,22 @@ export default function AppointmentsPage() {
 
               <div className="booking-right">
                 <label className="booking-label">CHỌN NGÀY</label>
-                <select
-                  className="booking-select"
+                <input
+                  type="date"
+                  className="booking-date booking-select"
                   value={selectedDate}
+                  min={todayStr}
                   onChange={(e) => {
                     setSelectedDate(e.target.value);
                     setSelectedTime("");
                   }}
-                >
-                  <option value="">-- Chọn ngày khám --</option>
-                  {dateOptions.map((d) => (
-                    <option key={d.value} value={d.value}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
+                />
 
                 <label className="booking-label">CHỌN GIỜ</label>
                 {selectedDate ? (
                   availableTimeSlots.length > 0 ? (
                     <div className="booking-time-list">
                       {availableTimeSlots.map((slot) => {
-                        const endMinute = slot.split(":")[1] === "30" ? "00" : "30";
-                        const endHour = slot.split(":")[1] === "30" ? String(Number(slot.split(":")[0]) + 1) : slot.split(":")[0];
-                        const endTime = `${endHour.padStart(2, "0")}:${endMinute}${slot.split(":")[1] === "30" ? "" : "30"}`;
                         const active = slot === selectedTime;
                         return (
                           <button
@@ -389,7 +395,12 @@ export default function AppointmentsPage() {
             </div>
 
             <div className="booking-save-wrap">
-              <button className="btn booking-save-btn" onClick={handleOpenConfirm}>
+              <button
+                className="btn booking-save-btn"
+                type="button"
+                onClick={handleOpenConfirm}
+                disabled={bookCooldownLocked}
+              >
                 Lưu lịch khám
               </button>
             </div>
@@ -404,10 +415,10 @@ export default function AppointmentsPage() {
 
         <div className="table-toolbar-filters">
           <SearchBar
-            placeholder="Tìm bác sĩ, bệnh nhân..."
-            value={searchTerm}
-            onChange={setSearchTerm}
-            onClear={() => setSearchTerm("")}
+            placeholder={user?.role === "Patient" ? "Tìm bác sĩ, khoa..." : "Tìm tên bệnh nhân..."}
+            value={patientSearch}
+            onChange={setPatientSearch}
+            onClear={() => setPatientSearch("")}
           />
           <select
             className="table-filter-select"
@@ -436,7 +447,7 @@ export default function AppointmentsPage() {
           <table className="table table-clickable">
             <thead>
               <tr>
-                <th>ID</th>
+                <th>STT</th>
                 {user?.role !== "Patient" && <th>Bệnh nhân</th>}
                 {user?.role === "Patient" && <th>Bác sĩ</th>}
                 <th>Khoa</th>
@@ -445,9 +456,9 @@ export default function AppointmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {displayedAppointments.map((a) => (
+              {displayedAppointments.map((a, index) => (
                 <tr key={a.appointmentId} onClick={() => handleRowClick(a)} style={{ cursor: "pointer" }}>
-                  <td>{a.appointmentId}</td>
+                  <td>{index + 1 + (currentPage - 1) * PAGE_SIZE}</td>
                   {user?.role === "Patient" ? (
                     <td>{a.doctorName || "-"}</td>
                   ) : (
@@ -460,12 +471,33 @@ export default function AppointmentsPage() {
               ))}
             </tbody>
           </table>
-          {!searchTerm && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={(p) => loadAppointments(p)}
-            />
+
+          {totalPages > 1 && (
+            <div className="pagination">
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                &laquo;
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  className={`pagination-page ${currentPage === page ? "active" : ""}`}
+                  onClick={() => handlePageChange(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                &raquo;
+              </button>
+            </div>
           )}
         </PageState>
       </div>
@@ -479,7 +511,7 @@ export default function AppointmentsPage() {
           currentUserName={currentUser?.fullName}
           onStatusUpdate={handleStatusUpdate}
           onCancel={handleCancel}
-          updating={updating}
+          updateLocked={updateLocked}
         />
       )}
 
@@ -497,7 +529,7 @@ export default function AppointmentsPage() {
   );
 }
 
-function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, currentUserName, onStatusUpdate, onCancel, updating }) {
+function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, currentUserName, onStatusUpdate, onCancel, updateLocked }) {
   const isPending = appointment.status === "Pending";
   const isConfirmed = appointment.status === "Confirmed";
   const isCompleted = appointment.status === "Completed";
@@ -510,10 +542,6 @@ function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, curren
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Chi tiết lịch hẹn" size="md">
       <div className="appointment-detail">
-        <div className="detail-row">
-          <span className="detail-label">ID</span>
-          <span className="detail-value">#{appointment.appointmentId}</span>
-        </div>
         <div className="detail-row">
           <span className="detail-label">Bệnh nhân</span>
           <span className="detail-value">{patientName}</span>
@@ -544,9 +572,9 @@ function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, curren
             <button
               className="btn secondary"
               onClick={() => onCancel(appointment.appointmentId)}
-              disabled={updating}
+              disabled={updateLocked}
             >
-              Hủy lịch hẹn
+              {updateLocked ? "Đang hủy..." : "Hủy lịch hẹn"}
             </button>
           )}
 
@@ -554,9 +582,9 @@ function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, curren
             <button
               className="btn"
               onClick={() => onStatusUpdate(appointment.appointmentId, "Confirmed")}
-              disabled={updating}
+              disabled={updateLocked}
             >
-              Xác nhận
+              {updateLocked ? "Đang xử lý..." : "Xác nhận"}
             </button>
           )}
 
@@ -565,33 +593,21 @@ function AppointmentDetailModal({ appointment, isOpen, onClose, userRole, curren
               <button
                 className="btn"
                 onClick={() => onStatusUpdate(appointment.appointmentId, "Completed")}
-                disabled={updating}
+                disabled={updateLocked}
               >
-                Hoàn thành
+                {updateLocked ? "Đang xử lý..." : "Hoàn thành"}
               </button>
               <button
                 className="btn secondary"
                 onClick={() => onStatusUpdate(appointment.appointmentId, "Cancelled")}
-                disabled={updating}
+                disabled={updateLocked}
               >
-                Từ chối
+                {updateLocked ? "Đang xử lý..." : "Từ chối"}
               </button>
             </>
           )}
 
-          {isDoctor && isCompleted && (
-            <button
-              className="btn"
-              onClick={() => {
-                onClose();
-                window.location.href = "/medical-records";
-              }}
-            >
-              Tạo bệnh án
-            </button>
-          )}
-
-          <button className="btn secondary" onClick={onClose} disabled={updating}>
+          <button className="btn secondary" onClick={onClose} disabled={updateLocked}>
             Đóng
           </button>
         </div>

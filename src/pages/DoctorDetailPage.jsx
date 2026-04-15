@@ -116,18 +116,20 @@ export default function DoctorDetailPage() {
 
           <div className="card">
             <h3 className="section-title">Lịch hẹn sắp tới của tôi</h3>
-            <PageState loading={appointmentsLoading} error="" empty={!upcomingAppointments.length} emptyText="Không có lịch hẹn sắp tới">
+            <PageState variant="inline" loading={appointmentsLoading} error="" empty={!appointmentsLoading && !upcomingAppointments.length} emptyText="Không có lịch hẹn sắp tới">
               <table className="table">
                 <thead>
                   <tr>
+                    <th>STT</th>
                     <th>Bệnh nhân</th>
                     <th>Thời gian</th>
                     <th>Trạng thái</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {upcomingAppointments.map((a) => (
+                  {upcomingAppointments.map((a, index) => (
                     <tr key={a.appointmentId}>
+                      <td>{index + 1}</td>
                       <td>{a.patientName}</td>
                       <td>{a.appointmentTimeText}</td>
                       <td><StatusBadge status={a.status} /></td>

@@ -2,12 +2,20 @@ import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { validateEmail } from "../../utils/validation";
 import { useState } from "react";
+import { useCooldown } from "../../hooks/useCooldown";
 
-export default function LoginForm({ onSubmit, loading }) {
+export default function LoginForm({ onSubmit, loading: externalLoading }) {
   const [showPassword, setShowPassword] = useState(false);
+  const { isLocked, run: runSubmit } = useCooldown(3000);
+  const loading = externalLoading || isLocked;
+
+  const handleSubmit = (data) => {
+    runSubmit(() => onSubmit(data));
+  };
+
   const {
     register,
-    handleSubmit,
+    handleSubmit: handleFormSubmit,
     formState: { errors },
   } = useForm({
     defaultValues: {
@@ -17,7 +25,7 @@ export default function LoginForm({ onSubmit, loading }) {
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
+    <form onSubmit={handleFormSubmit(handleSubmit)}>
       <div className="field">
         <label>Email</label>
         <input
@@ -36,6 +44,7 @@ export default function LoginForm({ onSubmit, loading }) {
             type={showPassword ? "text" : "password"}
             {...register("password", {
               required: "Mật khẩu là bắt buộc",
+              setValueAs: (v) => v?.trim(),
             })}
             className="password-input"
           />

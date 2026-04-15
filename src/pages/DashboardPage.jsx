@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { getCurrentUserService } from "../api/services/userService";
-import { getMyAppointmentsService } from "../api/services/appointmentService";
-import { getMedicalRecordsService } from "../api/services/medicalRecordService";
+import { getAllUsersService } from "../api/services/userService";
+import { getMyAppointmentsService, getDoctorScheduleService } from "../api/services/appointmentService";
+import { getDoctorsService } from "../api/services/doctorService";
+import { getDepartmentsService } from "../api/services/departmentService";
+import { getDoctorMedicalRecordsService, getMyMedicalRecordsService } from "../api/services/medicalRecordService";
 import PageState from "../components/common/PageState";
 import StatusBadge from "../components/common/StatusBadge";
 
@@ -15,6 +18,11 @@ export default function DashboardPage() {
   const [upcomingAppointments, setUpcomingAppointments] = useState([]);
   const [todayAppointments, setTodayAppointments] = useState([]);
   const [pendingAppointments, setPendingAppointments] = useState([]);
+  const [recentMedicalRecords, setRecentMedicalRecords] = useState([]);
+  const [scheduleDate, setScheduleDate] = useState(new Date().toISOString().split("T")[0]);
+  const [scheduleAppointments, setScheduleAppointments] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
+  const [recentAppointments, setRecentAppointments] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -35,8 +43,10 @@ export default function DashboardPage() {
   const loadStats = async (role) => {
     try {
       if (role === "Patient") {
-        const appointmentData = await getMyAppointmentsService("Patient", { pageSize: 100 });
-        const records = await getMedicalRecordsService("Patient", { pageSize: 100 }).catch(() => ({ items: [] }));
+        const [appointmentData, recordsData] = await Promise.all([
+          getMyAppointmentsService("Patient", { pageSize: 100 }),
+          getMyMedicalRecordsService(),
+        ]);
         const now = new Date();
         const total = appointmentData.items?.length || 0;
         const completed = appointmentData.items?.filter((a) => a.status === "Completed").length || 0;
@@ -47,15 +57,17 @@ export default function DashboardPage() {
             .sort((a, b) => new Date(a.appointmentTime) - new Date(b.appointmentTime))
             .slice(0, 3)
         );
+        setRecentMedicalRecords(
+          (recordsData || []).slice(0, 3)
+        );
         setStats({
           totalAppointments: total,
           completedAppointments: completed,
-          totalRecords: records.items?.length || 0,
           upcomingCount: upcoming,
         });
       } else if (role === "Doctor") {
         const appointmentData = await getMyAppointmentsService("Doctor", { pageSize: 100 });
-        const records = await getMedicalRecordsService("Doctor", { pageSize: 100 }).catch(() => ({ items: [] }));
+        const recordsData = await getDoctorMedicalRecordsService();
         const now = new Date();
         const todayStr = now.toISOString().split("T")[0];
         const today = appointmentData.items?.filter((a) => {
@@ -72,12 +84,40 @@ export default function DashboardPage() {
         const pending = appointmentData.items?.filter((a) => a.status === "Pending") || [];
         setTodayAppointments(today.slice(0, 5));
         setPendingAppointments(pending.slice(0, 5));
+        setRecentMedicalRecords((recordsData || []).slice(0, 3));
+
+        try {
+          const scheduleData = await getDoctorScheduleService(todayStr);
+          setScheduleAppointments(scheduleData || []);
+        } catch {
+          setScheduleAppointments(today);
+        }
+
         setStats({
           todayCount: today.length,
           weekCount: thisWeek.length,
-          totalRecords: records.items?.length || 0,
           pendingCount: pending.length,
         });
+      } else if (role === "Admin") {
+        // Load admin dashboard stats
+        const [usersData, doctorsData, departmentsData] = await Promise.all([
+          getAllUsersService({ pageSize: 1 }),
+          getDoctorsService({ pageSize: 1 }),
+          getDepartmentsService({ pageSize: 1 }),
+        ]);
+        setAdminStats({
+          totalUsers: usersData.totalCount || 0,
+          totalDoctors: doctorsData.totalCount || 0,
+          totalDepartments: departmentsData.totalCount || 0,
+        });
+        // Load recent appointments
+        try {
+          const appointmentData = await getMyAppointmentsService("Doctor", { pageSize: 100 });
+          const recent = (appointmentData.items || []).slice(0, 5);
+          setRecentAppointments(recent);
+        } catch {
+          setRecentAppointments([]);
+        }
       }
     } catch {
       // silently fail
@@ -92,14 +132,14 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard-container">
-      {role === "Patient" && <PatientDashboard profile={profile} stats={stats} upcoming={upcomingAppointments} navigate={navigate} />}
-      {role === "Doctor" && <DoctorDashboard profile={profile} stats={stats} today={todayAppointments} pending={pendingAppointments} navigate={navigate} />}
-      {role === "Admin" && <AdminDashboard profile={profile} navigate={navigate} />}
+      {role === "Patient" && <PatientDashboard profile={profile} stats={stats} upcoming={upcomingAppointments} recentRecords={recentMedicalRecords} navigate={navigate} />}
+      {role === "Doctor" && <DoctorDashboard profile={profile} stats={stats} today={todayAppointments} pending={pendingAppointments} recentRecords={recentMedicalRecords} scheduleDate={scheduleDate} setScheduleDate={setScheduleDate} scheduleAppointments={scheduleAppointments} setScheduleAppointments={setScheduleAppointments} navigate={navigate} />}
+      {role === "Admin" && <AdminDashboard profile={profile} adminStats={adminStats} recentAppointments={recentAppointments} navigate={navigate} />}
     </div>
   );
 }
 
-function PatientDashboard({ profile, stats, upcoming, navigate }) {
+function PatientDashboard({ profile, stats, upcoming, recentRecords, navigate }) {
   return (
     <>
       <div className="dashboard-welcome">
@@ -136,18 +176,6 @@ function PatientDashboard({ profile, stats, upcoming, navigate }) {
             <div className="stat-info">
               <span className="stat-value">{stats.completedAppointments}</span>
               <span className="stat-label">Đã hoàn thành</span>
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon stat-icon--purple">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{stats.totalRecords}</span>
-              <span className="stat-label">Bệnh án</span>
             </div>
           </div>
           <div className="stat-card">
@@ -195,9 +223,12 @@ function PatientDashboard({ profile, stats, upcoming, navigate }) {
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
               </svg>
             </div>
-            <span>Xem bệnh án</span>
+            <span>Hồ sơ bệnh án</span>
           </button>
           <button className="quick-action-card" onClick={() => navigate("/profile")}>
             <div className="quick-action-icon quick-action-icon--gray">
@@ -211,12 +242,52 @@ function PatientDashboard({ profile, stats, upcoming, navigate }) {
         </div>
       </div>
 
+      {recentRecords.length > 0 && (
+        <div className="card dashboard-upcoming">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h3>Hồ sơ bệnh án gần đây</h3>
+            <button className="btn btn-sm secondary" onClick={() => navigate("/medical-records")}>
+              Xem tất cả
+            </button>
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>STT</th>
+                <th>Bác sĩ</th>
+                <th>Khoa</th>
+                <th>Ngày khám</th>
+                <th>Chẩn đoán</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRecords.map((r, index) => (
+                <tr key={r.medicalRecordId} onClick={() => navigate("/medical-records")} style={{ cursor: "pointer" }}>
+                  <td>{index + 1}</td>
+                  <td>{r.doctorName}</td>
+                  <td>{r.departmentName}</td>
+                  <td>{r.appointmentTimeText}</td>
+                  <td>
+                    {r.doctorDiagnosis
+                      ? r.doctorDiagnosis.length > 40
+                        ? r.doctorDiagnosis.substring(0, 40) + "..."
+                        : r.doctorDiagnosis
+                      : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {upcoming.length > 0 && (
         <div className="card dashboard-upcoming">
           <h3>Lịch hẹn sắp tới</h3>
           <table className="table">
             <thead>
               <tr>
+                <th>STT</th>
                 <th>Bác sĩ</th>
                 <th>Khoa</th>
                 <th>Thời gian</th>
@@ -224,8 +295,9 @@ function PatientDashboard({ profile, stats, upcoming, navigate }) {
               </tr>
             </thead>
             <tbody>
-              {upcoming.map((a) => (
+              {upcoming.map((a, index) => (
                 <tr key={a.appointmentId}>
+                  <td>{index + 1}</td>
                   <td>{a.doctorName}</td>
                   <td>{a.departmentName}</td>
                   <td>{a.appointmentTimeText}</td>
@@ -259,7 +331,17 @@ function PatientDashboard({ profile, stats, upcoming, navigate }) {
   );
 }
 
-function DoctorDashboard({ profile, stats, today, pending, navigate }) {
+function DoctorDashboard({ profile, stats, today, pending, recentRecords, scheduleDate, setScheduleDate, scheduleAppointments, setScheduleAppointments, navigate }) {
+  const loadScheduleByDate = async (date) => {
+    try {
+      const data = await getDoctorScheduleService(date);
+      setScheduleAppointments(data || []);
+    } catch {
+      const filtered = today.filter((a) => (a.appointmentTime || "").startsWith(date));
+      setScheduleAppointments(filtered);
+    }
+  };
+
   return (
     <>
       <div className="dashboard-welcome">
@@ -299,18 +381,6 @@ function DoctorDashboard({ profile, stats, today, pending, navigate }) {
             </div>
           </div>
           <div className="stat-card">
-            <div className="stat-icon stat-icon--purple">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{stats.totalRecords}</span>
-              <span className="stat-label">Bệnh án đã tạo</span>
-            </div>
-          </div>
-          <div className="stat-card">
             <div className="stat-icon stat-icon--red">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10"/>
@@ -341,21 +411,12 @@ function DoctorDashboard({ profile, stats, today, pending, navigate }) {
             <span>Xem lịch hẹn</span>
           </button>
           <button className="quick-action-card" onClick={() => navigate("/medical-records")}>
-            <div className="quick-action-icon quick-action-icon--green">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="12" y1="18" x2="12" y2="12"/>
-                <line x1="9" y1="15" x2="15" y2="15"/>
-              </svg>
-            </div>
-            <span>Tạo bệnh án</span>
-          </button>
-          <button className="quick-action-card" onClick={() => navigate("/medical-records")}>
             <div className="quick-action-icon quick-action-icon--purple">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
               </svg>
             </div>
             <span>Hồ sơ bệnh án</span>
@@ -372,20 +433,61 @@ function DoctorDashboard({ profile, stats, today, pending, navigate }) {
         </div>
       </div>
 
+      {recentRecords.length > 0 && (
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h3>Hồ sơ bệnh án gần đây</h3>
+            <button className="btn btn-sm secondary" onClick={() => navigate("/medical-records")}>
+              Xem tất cả
+            </button>
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>STT</th>
+                <th>Bệnh nhân</th>
+                <th>Khoa</th>
+                <th>Ngày khám</th>
+                <th>Chẩn đoán</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRecords.map((r, index) => (
+                <tr key={r.medicalRecordId} onClick={() => navigate("/medical-records")} style={{ cursor: "pointer" }}>
+                  <td>{index + 1}</td>
+                  <td>{r.patientName}</td>
+                  <td>{r.departmentName}</td>
+                  <td>{r.appointmentTimeText}</td>
+                  <td>
+                    {r.doctorDiagnosis
+                      ? r.doctorDiagnosis.length > 40
+                        ? r.doctorDiagnosis.substring(0, 40) + "..."
+                        : r.doctorDiagnosis
+                      : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {pending.length > 0 && (
         <div className="card">
           <h3>Lịch hẹn chờ xác nhận</h3>
           <table className="table">
             <thead>
               <tr>
+                <th>STT</th>
                 <th>Bệnh nhân</th>
                 <th>Thời gian</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
-              {pending.map((a) => (
+              {pending.map((a, index) => (
                 <tr key={a.appointmentId}>
+                  <td>{index + 1}</td>
                   <td>{a.patientName}</td>
                   <td>{a.appointmentTimeText}</td>
                   <td><StatusBadge status={a.status} /></td>
@@ -402,14 +504,16 @@ function DoctorDashboard({ profile, stats, today, pending, navigate }) {
           <table className="table">
             <thead>
               <tr>
+                <th>STT</th>
                 <th>Bệnh nhân</th>
                 <th>Thời gian</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
-              {today.map((a) => (
+              {today.map((a, index) => (
                 <tr key={a.appointmentId}>
+                  <td>{index + 1}</td>
                   <td>{a.patientName}</td>
                   <td>{a.appointmentTimeText}</td>
                   <td><StatusBadge status={a.status} /></td>
@@ -423,7 +527,7 @@ function DoctorDashboard({ profile, stats, today, pending, navigate }) {
   );
 }
 
-function AdminDashboard({ profile, navigate }) {
+function AdminDashboard({ profile, adminStats, recentAppointments, navigate }) {
   return (
     <>
       <div className="dashboard-welcome">
@@ -433,6 +537,47 @@ function AdminDashboard({ profile, navigate }) {
           <p>Quản trị viên hệ thống Medical Booking</p>
         </div>
       </div>
+
+      {adminStats && (
+        <div className="dashboard-stats">
+          <div className="stat-card">
+            <div className="stat-icon stat-icon--blue">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div className="stat-info">
+              <span className="stat-value">{adminStats.totalUsers}</span>
+              <span className="stat-label">Tổng người dùng</span>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon stat-icon--green">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div className="stat-info">
+              <span className="stat-value">{adminStats.totalDoctors}</span>
+              <span className="stat-label">Bác sĩ</span>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon stat-icon--purple">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </div>
+            <div className="stat-info">
+              <span className="stat-value">{adminStats.totalDepartments}</span>
+              <span className="stat-label">Khoa</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="dashboard-quick-actions">
         <h3>Quản lý hệ thống</h3>
@@ -466,17 +611,6 @@ function AdminDashboard({ profile, navigate }) {
             </div>
             <span>Quản lý khoa</span>
           </button>
-          <button className="quick-action-card" onClick={() => navigate("/appointments")}>
-            <div className="quick-action-icon quick-action-icon--orange">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                <line x1="16" y1="2" x2="16" y2="6"/>
-                <line x1="8" y1="2" x2="8" y2="6"/>
-                <line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
-            </div>
-            <span>Quản lý lịch hẹn</span>
-          </button>
         </div>
       </div>
 
@@ -504,6 +638,34 @@ function AdminDashboard({ profile, navigate }) {
           </button>
         </div>
       </div>
+
+      {recentAppointments.length > 0 && (
+        <div className="card">
+          <h3>Hoạt động gần đây</h3>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>STT</th>
+                <th>Bệnh nhân</th>
+                <th>Bác sĩ</th>
+                <th>Thời gian</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentAppointments.map((a, index) => (
+                <tr key={a.appointmentId}>
+                  <td>{index + 1}</td>
+                  <td>{a.patientName || "-"}</td>
+                  <td>{a.doctorName || "-"}</td>
+                  <td>{a.appointmentTimeText}</td>
+                  <td><StatusBadge status={a.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

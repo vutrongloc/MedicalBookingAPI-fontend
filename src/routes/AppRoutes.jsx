@@ -10,8 +10,10 @@ import DoctorsPage from "../pages/DoctorsPage";
 import DoctorDetailPage from "../pages/DoctorDetailPage";
 import AppointmentsPage from "../pages/AppointmentsPage";
 import MedicalRecordsPage from "../pages/MedicalRecordsPage";
+import CreateMedicalRecordPage from "../pages/CreateMedicalRecordPage";
 import ProfilePage from "../pages/ProfilePage";
 import AdminPage from "../pages/AdminPage";
+import AIChatPage from "../pages/AIChatPage";
 import NotFoundPage from "../pages/NotFoundPage";
 import { useAuth } from "../hooks/useAuth";
 
@@ -43,8 +45,39 @@ export default function AppRoutes() {
         <Route path="doctors" element={<DoctorsPage />} />
         <Route path="doctors/:id" element={<DoctorDetailPage />} />
         <Route path="appointments" element={<AppointmentsPage />} />
-        <Route path="medical-records" element={<MedicalRecordsPage />} />
+        <Route
+          path="medical-records"
+          element={
+            <ProtectedRoute roles={["Patient", "Doctor"]}>
+              <MedicalRecordsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="medical-records/create"
+          element={
+            <ProtectedRoute roles={["Doctor"]}>
+              <CreateMedicalRecordPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="medical-records/edit/:id"
+          element={
+            <ProtectedRoute roles={["Doctor"]}>
+              <CreateMedicalRecordPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="profile" element={<ProfilePage />} />
+        <Route
+          path="ai-chat"
+          element={
+            <ProtectedRoute roles={["Patient"]}>
+              <AIChatPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="admin"
           element={

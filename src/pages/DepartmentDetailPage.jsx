@@ -77,10 +77,11 @@ export default function DepartmentDetailPage() {
             <h3 className="section-title">
               Bác sĩ thuộc khoa ({doctors.length})
             </h3>
-            <PageState loading={doctorsLoading} error="" empty={!doctors.length} emptyText="Chưa có bác sĩ trong khoa này">
+            <PageState variant="inline" loading={doctorsLoading} error="" empty={!doctorsLoading && !doctors.length} emptyText="Chưa có bác sĩ trong khoa này">
               <div className="doctor-grid">
-                {doctors.map((d) => (
+                {doctors.map((d, index) => (
                   <div key={d.doctorId} className="doctor-card">
+                    <span className="doctor-card-stt">{index + 1}</span>
                     <div className="doctor-card-avatar">
                       {d.fullName?.charAt(0)?.toUpperCase() || "?"}
                     </div>

@@ -1,10 +1,14 @@
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { validateEmail, validatePhone } from "../../utils/validation";
+import { useCooldown } from "../../hooks/useCooldown";
 
 const genders = ["Nam", "Nữ", "Khác"];
 
-export default function RegisterForm({ onSubmit, loading }) {
+export default function RegisterForm({ onSubmit, loading: externalLoading }) {
+  const { isLocked, run: runSubmit } = useCooldown(3000);
+  const loading = externalLoading || isLocked;
+
   const {
     register,
     handleSubmit,
@@ -24,8 +28,12 @@ export default function RegisterForm({ onSubmit, loading }) {
 
   const passwordValue = watch("password");
 
+  const handleFormSubmit = (data) => {
+    runSubmit(() => onSubmit(data));
+  };
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
+    <form onSubmit={handleSubmit(handleFormSubmit)}>
       <div className="field">
         <input
           type="text"
@@ -92,6 +100,7 @@ export default function RegisterForm({ onSubmit, loading }) {
             required: "Mật khẩu là bắt buộc",
             minLength: { value: 6, message: "Mật khẩu tối thiểu 6 ký tự" },
             maxLength: { value: 100, message: "Mật khẩu tối đa 100 ký tự" },
+            setValueAs: (v) => v?.trim(),
           })}
         />
         {errors.password && <span className="error-text">{errors.password.message}</span>}
@@ -104,6 +113,7 @@ export default function RegisterForm({ onSubmit, loading }) {
           {...register("confirmPassword", {
             required: "Vui lòng xác nhận mật khẩu",
             validate: (v) => v === passwordValue || "Mật khẩu xác nhận không khớp",
+            setValueAs: (v) => v?.trim(),
           })}
         />
         {errors.confirmPassword && (

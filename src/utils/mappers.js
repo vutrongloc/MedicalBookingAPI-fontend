@@ -1,4 +1,4 @@
-import { formatDateTime } from "./date";
+import { formatDateTime, formatCreatedAt } from "./date";
 
 function toCamelCase(str) {
   return str ? str.charAt(0).toLowerCase() + str.slice(1) : str;
@@ -28,21 +28,6 @@ export function mapAppointment(dto) {
     doctorName: normalizeNullable(raw.doctorName, "-"),
     departmentName: normalizeNullable(raw.departmentName, "-"),
     appointmentTimeText: formatDateTime(raw.appointmentTime),
-    createdAtText: formatDateTime(raw.createdAt),
-  };
-}
-
-export function mapMedicalRecord(dto) {
-  const raw = mapKeysPascalToCamel(dto);
-  return {
-    ...raw,
-    patientName: normalizeNullable(raw.patientName, "-"),
-    doctorName: normalizeNullable(raw.doctorName, "-"),
-    departmentName: normalizeNullable(raw.departmentName, "-"),
-    doctorDiagnosis: normalizeNullable(raw.doctorDiagnosis, ""),
-    treatment: normalizeNullable(raw.treatment, ""),
-    prescription: normalizeNullable(raw.prescription, ""),
-    appointmentTimeText: formatDateTime(raw.appointmentTime),
-    createdAtText: formatDateTime(raw.createdAt),
+    createdAtText: formatCreatedAt(raw.createdAt),
   };
 }

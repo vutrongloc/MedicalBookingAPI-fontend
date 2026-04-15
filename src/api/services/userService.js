@@ -55,15 +55,15 @@ export async function changePasswordService(form) {
 
 export async function getAllUsersService(params = {}) {
   const query = new URLSearchParams();
-  if (params.page) query.set("page", params.page);
-  if (params.pageSize) query.set("pageSize", params.pageSize);
   if (params.search) query.set("search", params.search);
   if (params.role) query.set("role", params.role);
 
-  const res = await axiosClient.get(`/api/Users?${query.toString()}`);
+  const res = await axiosClient.get(`/api/Users${query.toString() ? "?" + query.toString() : ""}`);
   const body = unwrapApiResponse(res);
+  const rawData = body.data || [];
+
   return {
-    items: (body.data?.items || []).map((item) => {
+    items: Array.isArray(rawData) ? rawData.map((item) => {
       const u = mapKeysPascalToCamel(item);
       return {
         userId: u.userId,
@@ -73,10 +73,12 @@ export async function getAllUsersService(params = {}) {
         role: normalizeNullable(u.role, "Patient"),
         createdAt: u.createdAt,
       };
-    }),
-    totalCount: body.data?.totalCount || 0,
-    page: body.data?.page || 1,
-    pageSize: body.data?.pageSize || 10,
-    totalPages: body.data?.totalPages || 1,
+    }) : [],
+    totalCount: Array.isArray(rawData) ? rawData.length : 0,
   };
+}
+
+export async function deleteUserService(userId) {
+  const res = await axiosClient.delete(`/api/Users/${userId}`);
+  return unwrapApiResponse(res);
 }

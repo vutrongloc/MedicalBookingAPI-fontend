@@ -5,6 +5,7 @@ export default function ConfirmDialog({
   confirmText = "Xác nhận",
   cancelText = "Hủy",
   variant = "warning",
+  disabled = false,
 }) {
   const iconPaths = {
     warning: (
@@ -40,10 +41,11 @@ export default function ConfirmDialog({
         </div>
         <p className="confirm-dialog-message">{message}</p>
         <div className="confirm-dialog-actions">
-          <button className="btn secondary" onClick={onCancel}>{cancelText}</button>
+          <button className="btn secondary" onClick={onCancel} disabled={disabled}>{cancelText}</button>
           <button
             className={`btn ${variant === "danger" ? "confirm-danger" : "btn"}`}
             onClick={onConfirm}
+            disabled={disabled}
           >
             {confirmText}
           </button>

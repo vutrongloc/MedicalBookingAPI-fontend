@@ -1,15 +1,31 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 
-export default function SearchBar({ placeholder = "Tìm kiếm...", value, onChange, onClear }) {
+export default function SearchBar({ placeholder = "Tìm kiếm...", value = "", onChange, onClear }) {
   const debounceRef = useRef(null);
+  const [text, setText] = useState(value ?? "");
 
-  const handleChange = useCallback((e) => {
-    const val = e.target.value;
+  useEffect(() => {
+    setText(value ?? "");
+  }, [value]);
+
+  const handleChange = useCallback(
+    (e) => {
+      const val = e.target.value;
+      setText(val);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        onChange?.(val);
+      }, 300);
+    },
+    [onChange]
+  );
+
+  const handleClear = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onChange?.(val);
-    }, 300);
-  }, [onChange]);
+    setText("");
+    onChange?.("");
+    onClear?.();
+  }, [onClear, onChange]);
 
   useEffect(() => {
     return () => {
@@ -17,10 +33,7 @@ export default function SearchBar({ placeholder = "Tìm kiếm...", value, onCha
     };
   }, []);
 
-  const handleClear = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    onClear?.();
-  };
+  const showClear = Boolean(text);
 
   return (
     <div className="search-bar">
@@ -34,11 +47,11 @@ export default function SearchBar({ placeholder = "Tìm kiếm...", value, onCha
         type="text"
         className="search-bar-input"
         placeholder={placeholder}
-        defaultValue={value}
+        value={text}
         onChange={handleChange}
       />
-      {value && (
-        <button className="search-bar-clear" onClick={handleClear} aria-label="Xóa tìm kiếm">
+      {showClear && (
+        <button type="button" className="search-bar-clear" onClick={handleClear} aria-label="Xóa tìm kiếm">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>

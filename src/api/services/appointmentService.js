@@ -34,7 +34,7 @@ export async function getAppointmentByIdService(appointmentId) {
 export async function createAppointmentService(form) {
   const payload = {
     doctorId: Number(form.doctorId),
-    appointmentTime: new Date(form.appointmentTime).toISOString(),
+    appointmentTime: form.appointmentTime,
   };
   const res = await axiosClient.post("/api/Appointments", payload);
   const body = unwrapApiResponse(res);
@@ -73,4 +73,14 @@ export async function getAllAppointmentsService(params = {}) {
     pageSize: body.data?.pageSize || 10,
     totalPages: body.data?.totalPages || 1,
   };
+}
+
+export async function getDoctorScheduleService(date) {
+  const query = new URLSearchParams();
+  if (date) query.set("date", date);
+
+  const res = await axiosClient.get(`/api/Appointments/doctor/schedule?${query.toString()}`);
+  const body = unwrapApiResponse(res);
+  const rawData = body.data || [];
+  return Array.isArray(rawData) ? rawData.map(mapAppointment) : [];
 }

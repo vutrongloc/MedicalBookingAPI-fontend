@@ -6,11 +6,25 @@ import { useAuth } from "../hooks/useAuth";
 import { tokenStorage } from "../utils/storage";
 import Modal from "../components/common/Modal";
 import PageState from "../components/common/PageState";
+import { useCooldown } from "../hooks/useCooldown";
+
+/** Đồng bộ với đăng ký (Nam/Nữ/Khác) và dữ liệu cũ Male/Female/Other. */
+function normalizeGenderForForm(g) {
+  if (g == null || g === "") return "";
+  const s = String(g).trim();
+  if (s === "Nam" || s === "Nữ" || s === "Khác") return s;
+  const lower = s.toLowerCase();
+  if (s === "Male" || lower === "male") return "Nam";
+  if (s === "Female" || lower === "female") return "Nữ";
+  if (s === "Other" || lower === "other") return "Khác";
+  return "";
+}
 
 export default function ProfilePage() {
   const { user, login, logout, token } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { isLocked: saveCooldownLocked, run: runSave } = useCooldown(3000);
   const [error, setError] = useState("");
   const [profile, setProfile] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -27,7 +41,7 @@ export default function ProfilePage() {
         fullName: data.fullName || "",
         phone: data.phone || "",
         dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split("T")[0] : "",
-        gender: data.gender || "",
+        gender: normalizeGenderForForm(data.gender),
         qualification: data.qualification || "",
       });
     } catch (e) {
@@ -41,18 +55,20 @@ export default function ProfilePage() {
     loadProfile();
   }, []);
 
-  const onSubmit = async (formData) => {
-    setSaving(true);
-    try {
-      const updated = await updateCurrentUserService(formData);
-      login({ ...user, ...updated }, token || tokenStorage.get() || "");
-      toast.success("Cập nhật hồ sơ thành công");
-      setProfile((prev) => ({ ...prev, ...updated }));
-    } catch (e) {
-      toast.error(e?.message || "Cập nhật thất bại");
-    } finally {
-      setSaving(false);
-    }
+  const onSubmit = (formData) => {
+    runSave(async () => {
+      setSaving(true);
+      try {
+        const updated = await updateCurrentUserService(formData);
+        login({ ...user, ...updated }, token || tokenStorage.get() || "");
+        toast.success("Cập nhật hồ sơ thành công");
+        setProfile((prev) => ({ ...prev, ...updated }));
+      } catch (e) {
+        toast.error(e?.message || "Cập nhật thất bại");
+      } finally {
+        setSaving(false);
+      }
+    });
   };
 
   return (
@@ -127,9 +143,9 @@ export default function ProfilePage() {
                     <label className="field-label">Giới tính</label>
                     <select {...register("gender")}>
                       <option value="">-- Chọn giới tính --</option>
-                      <option value="Male">Nam</option>
-                      <option value="Female">Nữ</option>
-                      <option value="Other">Khác</option>
+                      <option value="Nam">Nam</option>
+                      <option value="Nữ">Nữ</option>
+                      <option value="Khác">Khác</option>
                     </select>
                   </div>
                 </>
@@ -154,13 +170,14 @@ export default function ProfilePage() {
             </div>
 
             <div className="profile-form-actions">
-              <button type="submit" className="btn" disabled={saving}>
-                {saving ? "Đang lưu..." : "Lưu thay đổi"}
+              <button type="submit" className="btn" disabled={saving || saveCooldownLocked}>
+                {saving || saveCooldownLocked ? "Đang lưu..." : "Lưu thay đổi"}
               </button>
               <button
                 type="button"
                 className="btn secondary"
                 onClick={() => setShowPasswordModal(true)}
+                disabled={saveCooldownLocked}
               >
                 Đổi mật khẩu
               </button>
@@ -209,20 +226,29 @@ function PasswordModal({ isOpen, onClose, onSuccess }) {
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm();
+  const oldPassword = watch("oldPassword");
   const newPassword = watch("newPassword");
+  const { isLocked: pwdActionLocked, run: runPwdAction } = useCooldown(3000);
 
-  const onSubmit = async (data) => {
-    try {
-      await changePasswordService({
-        oldPassword: data.oldPassword,
-        newPassword: data.newPassword,
-      });
-      toast.success("Đổi mật khẩu thành công");
-      reset();
-      onSuccess();
-    } catch (e) {
-      toast.error(e?.message || "Đổi mật khẩu thất bại");
-    }
+  const onSubmit = (data) => {
+    runPwdAction(async () => {
+      try {
+        await changePasswordService({
+          oldPassword: data.oldPassword,
+          newPassword: data.newPassword,
+        });
+        toast.success("Đổi mật khẩu thành công");
+        reset();
+        onSuccess();
+      } catch (e) {
+        const message = e?.message || "";
+        if (message.toLowerCase().includes("không đúng") || message.toLowerCase().includes("sai") || e?.response?.status === 400) {
+          toast.error("Mật khẩu nhập hiện tại không đúng");
+        } else {
+          toast.error(message || "Đổi mật khẩu thất bại");
+        }
+      }
+    });
   };
 
   useEffect(() => {
@@ -241,7 +267,10 @@ function PasswordModal({ isOpen, onClose, onSuccess }) {
           <div className="password-field-wrapper">
             <input
               type={showOld ? "text" : "password"}
-              {...register("oldPassword", { required: "Mật khẩu hiện tại không được để trống" })}
+              {...register("oldPassword", {
+                required: "Mật khẩu hiện tại không được để trống",
+                setValueAs: (v) => v?.trim(),
+              })}
               className={`password-field-input ${errors.oldPassword ? "input-error" : ""}`}
               autoComplete="current-password"
             />
@@ -257,7 +286,9 @@ function PasswordModal({ isOpen, onClose, onSuccess }) {
               type={showNew ? "text" : "password"}
               {...register("newPassword", {
                 required: "Mật khẩu mới không được để trống",
-                minLength: { value: 6, message: "Mật khẩu mới phải có ít nhất 6 ký tự" }
+                minLength: { value: 6, message: "Mật khẩu mới phải có ít nhất 6 ký tự" },
+                validate: (v) => v !== oldPassword || "Mật khẩu mới phải khác mật khẩu cũ",
+                setValueAs: (v) => v?.trim(),
               })}
               className={`password-field-input ${errors.newPassword ? "input-error" : ""}`}
               autoComplete="new-password"
@@ -273,7 +304,9 @@ function PasswordModal({ isOpen, onClose, onSuccess }) {
             <input
               type={showNew ? "text" : "password"}
               {...register("confirmPassword", {
-                validate: (val) => val === newPassword || "Mật khẩu xác nhận không khớp"
+                required: "Vui lòng xác nhận mật khẩu",
+                validate: (val) => val === newPassword || "Mật khẩu xác nhận không khớp",
+                setValueAs: (v) => v?.trim(),
               })}
               className={`password-field-input ${errors.confirmPassword ? "input-error" : ""}`}
               autoComplete="new-password"
@@ -283,9 +316,11 @@ function PasswordModal({ isOpen, onClose, onSuccess }) {
         </div>
 
         <div className="modal-form-actions">
-          <button type="button" className="btn secondary" onClick={onClose}>Hủy</button>
-          <button type="submit" className="btn" disabled={isSubmitting}>
-            {isSubmitting ? "Đang xử lý..." : "Đổi mật khẩu"}
+          <button type="button" className="btn secondary" onClick={onClose} disabled={pwdActionLocked}>
+            Hủy
+          </button>
+          <button type="submit" className="btn" disabled={isSubmitting || pwdActionLocked}>
+            {isSubmitting || pwdActionLocked ? "Đang xử lý..." : "Đổi mật khẩu"}
           </button>
         </div>
       </form>
