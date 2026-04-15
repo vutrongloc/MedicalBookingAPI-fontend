@@ -312,7 +312,7 @@ function PatientDashboard({ profile, stats, upcoming, recentRecords, navigate })
       <div className="dashboard-ai-card">
         <button
           className="dashboard-ai-btn"
-          onClick={() => toast.info("Tính năng chẩn đoán AI đang được phát triển")}
+          onClick={() => navigate("/ai-chat")}
         >
           <div className="dashboard-ai-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -322,8 +322,8 @@ function PatientDashboard({ profile, stats, upcoming, recentRecords, navigate })
             </svg>
           </div>
           <div>
-            <strong>Chẩn đoán bệnh bằng AI</strong>
-            <p>Sử dụng trí tuệ nhân tạo để hỗ trợ chẩn đoán sơ bộ</p>
+            <strong>Trợ lý AI</strong>
+            <p>Sử dụng trí tuệ nhân tạo để hỗ trợ đưa ra khoa khám phù hợp</p>
           </div>
         </button>
       </div>
