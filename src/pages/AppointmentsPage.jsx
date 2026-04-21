@@ -51,6 +51,7 @@ export default function AppointmentsPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const initialDoctorId = searchParams.get("doctorId") || "";
+  const initialDepartmentName = searchParams.get("departmentName") || "";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -174,6 +175,18 @@ export default function AppointmentsPage() {
       }
     }
   }, [initialDoctorId, doctors]);
+
+  useEffect(() => {
+    if (initialDepartmentName && departments.length > 0) {
+      const matched = departments.find(
+        (d) =>
+          d.departmentName.toLowerCase() === initialDepartmentName.toLowerCase(),
+      );
+      if (matched) {
+        setSelectedDepartmentId(`${matched.departmentId}`);
+      }
+    }
+  }, [initialDepartmentName, departments]);
 
   const filteredDoctors = useMemo(() => {
     return selectedDepartmentId

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   createChatSession,
@@ -9,14 +10,56 @@ import {
 } from "../api/services/aiService";
 import { useCooldown } from "../hooks/useCooldown";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+function SpecialtyRecommendationCard({ specialty, confidence }) {
+  const navigate = useNavigate();
+  const confidencePercent = confidence ? Math.round(confidence * 100) : 80;
+  const confidenceColor =
+    confidencePercent >= 90
+      ? "#16a34a"
+      : confidencePercent >= 70
+        ? "#2563eb"
+        : "#f59e0b";
+
+  return (
+    <div className="ai-specialty-card">
+      <div className="ai-specialty-header">
+        <span className="ai-specialty-icon">🏥</span>
+        <span className="ai-specialty-label">Chuyên khoa gợi ý</span>
+      </div>
+      <div className="ai-specialty-name">{specialty}</div>
+      <div className="ai-specialty-confidence">
+        Độ chính xác:{" "}
+        <strong style={{ color: confidenceColor }}>{confidencePercent}%</strong>
+      </div>
+      <button
+        className="ai-specialty-btn"
+        onClick={() =>
+          navigate(
+            `/appointments?departmentName=${encodeURIComponent(specialty)}`,
+          )
+        }
+      >
+        Đặt lịch khám ngay
+      </button>
+    </div>
+  );
+}
 
 export default function AIChatPage() {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
   const [currentSession, setCurrentSession] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const messagesEndRef = useRef(null);
   const { isLocked: sendLocked, run: runSend } = useCooldown(3000);
   const { isLocked: newLocked, run: runNew } = useCooldown(2000);
@@ -56,18 +99,20 @@ export default function AIChatPage() {
 
   const handleSelectSession = async (session) => {
     setCurrentSession(session);
+    setSessionEnded(false);
     await loadChatHistory(session.sessionId);
   };
 
   const handleNewSession = async () => {
     if (newLocked) return;
     setCreatingSession(true);
-    
+    setSessionEnded(false);
+
     runNew(async () => {
       try {
         await createChatSession();
         await loadSessions();
-        
+
         // Reload sessions để lấy session mới nhất với sessionId chính xác
         const updatedSessions = await getChatSessions();
         if (updatedSessions && updatedSessions.length > 0) {
@@ -76,7 +121,6 @@ export default function AIChatPage() {
           setCurrentSession(newSession);
           setMessages([]);
           toast.success("Đã tạo phiên trò chuyện mới");
-
         }
       } catch (e) {
         toast.error(e?.message || "Không thể tạo phiên trò chuyện mới");
@@ -108,17 +152,35 @@ export default function AIChatPage() {
     const userMessage = inputMessage.trim();
     setInputMessage("");
 
-    setMessages((prev) => [...prev, { role: "user", content: userMessage, timestamp: dayjs().add(7, "hour").format("YYYY-MM-DD HH:mm") }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: userMessage,
+      timestamp: dayjs().tz("Asia/Ho_Chi_Minh").format("YYYY-MM-DD HH:mm"),
+    },
+    ]);
 
     runSend(async () => {
       try {
-        const response = await sendMessage(currentSession.sessionId, userMessage);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: response.response, timestamp: dayjs().add(7, "hour").format("YYYY-MM-DD HH:mm") },
-        ]);
+        const response = await sendMessage(
+          currentSession.sessionId,
+          userMessage,
+        );
+        const assistantMessage = {
+          role: "assistant",
+          content: response.response,
+          timestamp: dayjs().tz("Asia/Ho_Chi_Minh").format("YYYY-MM-DD HH:mm"),
+          suggestedSpecialty: response.suggestedSpecialty || null,
+          confidenceScore: response.confidenceScore || null,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
       } catch (e) {
-        toast.error(e?.message || "Không thể gửi tin nhắn");
+        const msg = e?.message || "";
+        if (msg.includes("đã kết thúc") || msg.includes("ended")) {
+          setSessionEnded(true);
+        }
+        toast.error(msg || "Không thể gửi tin nhắn");
         setMessages((prev) => prev.filter((_, i) => i < prev.length - 1));
       }
     });
@@ -155,7 +217,9 @@ export default function AIChatPage() {
                 onClick={() => handleSelectSession(session)}
               >
                 <div className="ai-chat-session-info">
-                  <div className="ai-chat-session-time">{session.createdAtText}</div>
+                  <div className="ai-chat-session-time">
+                    {session.createdAtText}
+                  </div>
                 </div>
                 <button
                   className="ai-chat-session-delete"
@@ -178,7 +242,9 @@ export default function AIChatPage() {
                 <span className="ai-chat-avatar">🤖</span>
                 <div>
                   <div className="ai-chat-header-title">Trợ lý AI</div>
-                  <div className="ai-chat-header-subtitle">Hỏi đáp về sức khỏe</div>
+                  <div className="ai-chat-header-subtitle">
+                    Hỏi đáp về sức khỏe
+                  </div>
                 </div>
               </div>
             </div>
@@ -188,7 +254,9 @@ export default function AIChatPage() {
                 <div className="ai-chat-welcome">
                   <div className="ai-chat-welcome-icon">🤖</div>
                   <h3>Xin chào! Tôi là trợ lý AI</h3>
-                  <p>Hãy hỏi tôi về sức khỏe, bệnh lý, hoặc nhận tư vấn sơ bộ.</p>
+                  <p>
+                    Hãy hỏi tôi về sức khỏe, bệnh lý, hoặc nhận tư vấn sơ bộ.
+                  </p>
                 </div>
               )}
               {messages.map((msg, index) => (
@@ -198,10 +266,29 @@ export default function AIChatPage() {
                   </div>
                   <div className="ai-chat-message-content">
                     <div className="ai-chat-message-bubble">{msg.content}</div>
-                    <div className="ai-chat-message-time">{formatTime(msg.timestamp)}</div>
+                    {msg.role === "assistant" && msg.suggestedSpecialty && (
+                      <SpecialtyRecommendationCard
+                        specialty={msg.suggestedSpecialty}
+                        confidence={msg.confidenceScore}
+                      />
+                    )}
+                    <div className="ai-chat-message-time">
+                      {formatTime(msg.timestamp)}
+                    </div>
                   </div>
                 </div>
               ))}
+              {sessionEnded && (
+                <div className="ai-chat-session-ended">
+                  <p>Phiên trò chuyện này đã kết thúc do không hoạt động trong 10 phút.</p>
+                  <button
+                    onClick={handleNewSession}
+                    className="ai-chat-new-session-btn"
+                  >
+                    Tạo phiên trò chuyện mới
+                  </button>
+                </div>
+              )}
               {sendLocked && (
                 <div className="ai-chat-message assistant">
                   <div className="ai-chat-message-avatar">🤖</div>
@@ -626,6 +713,99 @@ export default function AIChatPage() {
           .ai-chat-message {
             max-width: 90%;
           }
+        }
+
+        .ai-specialty-card {
+          margin-top: 10px;
+          padding: 14px 16px;
+          background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+          border: 1px solid #bfdbfe;
+          border-radius: 12px;
+          max-width: 280px;
+        }
+
+        .ai-specialty-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 6px;
+        }
+
+        .ai-specialty-icon {
+          font-size: 16px;
+        }
+
+        .ai-specialty-label {
+          font-size: 12px;
+          color: #64748b;
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .ai-specialty-name {
+          font-size: 15px;
+          font-weight: 700;
+          color: #1e40af;
+          margin-bottom: 4px;
+        }
+
+        .ai-specialty-confidence {
+          font-size: 12px;
+          color: #64748b;
+          margin-bottom: 12px;
+        }
+
+        .ai-specialty-btn {
+          width: 100%;
+          padding: 10px 16px;
+          background: #2563eb;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+
+        .ai-specialty-btn:hover {
+          background: #1d4ed8;
+        }
+
+        .ai-chat-session-ended {
+          background: #fef3c7;
+          border: 1px solid #fcd34d;
+          border-radius: 8px;
+          padding: 16px;
+          margin: 4px auto 12px;
+          text-align: center;
+          max-width: 400px;
+        }
+
+        .ai-chat-session-ended p {
+          margin: 0 0 12px;
+          color: #92400e;
+          font-size: 14px;
+        }
+
+        .ai-chat-new-session-btn {
+          padding: 8px 16px;
+          background: #d97706;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .ai-chat-new-session-btn:hover {
+          background: #b45309;
         }
       `}</style>
     </div>

@@ -2,17 +2,28 @@ import { axiosClient } from "../axiosClient";
 import { unwrapApiResponse } from "./baseService";
 import { mapKeysPascalToCamel } from "../../utils/mappers";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 
-const VIETNAM_OFFSET_HOURS = 7;
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const VIETNAM_TZ = "Asia/Ho_Chi_Minh";
 
 const addVietnamOffset = (dateStr) => {
   if (!dateStr) return "";
-  return dayjs(dateStr).add(VIETNAM_OFFSET_HOURS, "hour").format("YYYY-MM-DD HH:mm");
+  if (dateStr.endsWith("Z")) {
+    return dayjs.utc(dateStr).tz(VIETNAM_TZ).format("YYYY-MM-DD HH:mm");
+  }
+  return dayjs.tz(dateStr, VIETNAM_TZ).format("YYYY-MM-DD HH:mm");
 };
 
 const addVietnamOffsetShort = (dateStr) => {
   if (!dateStr) return "";
-  return dayjs(dateStr).add(VIETNAM_OFFSET_HOURS, "hour").format("DD/MM/YYYY HH:mm");
+  if (dateStr.endsWith("Z")) {
+    return dayjs.utc(dateStr).tz(VIETNAM_TZ).format("DD/MM/YYYY HH:mm");
+  }
+  return dayjs.tz(dateStr, VIETNAM_TZ).format("DD/MM/YYYY HH:mm");
 };
 
 function mapMessage(raw) {
@@ -20,6 +31,8 @@ function mapMessage(raw) {
     role: raw.sender?.toLowerCase() || raw.role || "user",
     content: raw.content || "",
     timestamp: raw.createdAt ? addVietnamOffset(raw.createdAt) : "",
+    suggestedSpecialty: raw.suggestedSpecialty || null,
+    confidenceScore: raw.confidenceScore || null,
   };
 }
 
@@ -71,6 +84,8 @@ export async function sendMessage(sessionId, message) {
     message: data.assistantMessage?.content,
     response: data.assistantMessage?.content,
     sessionToken: data.chatSessionId,
+    suggestedSpecialty: data.assistantMessage?.suggestedSpecialty || null,
+    confidenceScore: data.assistantMessage?.confidenceScore || null,
   };
 }
 
