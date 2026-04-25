@@ -231,7 +231,11 @@ export default function AppointmentsPage() {
         setSymptoms("");
         await loadAllAppointments();
       } catch (e) {
-        toast.error(e?.message || "Tạo lịch hẹn thất bại");
+        if (e?.response?.status === 400) {
+          toast.error("Khung giờ này hiện đã có người đặt, vui lòng chọn khung giờ khác hoặc bác sĩ khác.");
+        } else {
+          toast.error(e?.message || "Tạo lịch hẹn thất bại");
+        }
       } finally {
         setCreatingAppointment(false);
       }
@@ -289,16 +293,7 @@ export default function AppointmentsPage() {
               </p>
             </div>
 
-            <h3 className="booking-subtitle">TRIỆU CHỨNG</h3>
-            <textarea
-              className="booking-textarea"
-              placeholder="Mô tả triệu chứng của bạn"
-              value={symptoms}
-              onChange={(e) => setSymptoms(e.target.value)}
-            />
-            <p className="booking-note">
-              Kết quả chẩn đoán AI: (nếu bệnh nhân sử dụng chẩn đoán AI trước đó thì bỏ qua)
-            </p>
+            
 
             <div className="booking-confirm-actions">
               <button
