@@ -1260,6 +1260,150 @@ textarea {
   border-radius: 8px;
   font-size: 13px;
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================
+   ADMIN FORM SUCCESS
+   ========================================== */
+
+.admin-form-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.success-icon {
+  margin-bottom: 12px;
+}
+
+.success-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #065f46;
+  margin: 0 0 16px;
+}
+
+.success-info {
+  width: 100%;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.success-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.success-row:last-child {
+  border-bottom: none;
+}
+
+.success-label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.success-value {
+  font-size: 13px;
+  color: #111827;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ==========================================
+   APPOINTMENT DETAIL MODAL
+   ========================================== */
+
+.detail-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-value {
+  font-size: 14px;
+  color: #111827;
+  font-weight: 500;
+}
+
+.has-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.has-record.yes {
+  color: #16a34a;
+}
+
+.has-record.no {
+  color: #dc2626;
+}
+
+/* ==========================================
+   ADMIN APPOINTMENTS TAB
+   ========================================== */
+
+.admin-appointments-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.admin-appointments-filters .table-filter-select,
+.admin-appointments-filters input[type="date"] {
+  min-width: 150px;
+}
+
+.appointment-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.appointment-actions select.table-filter-select {
+  min-width: 130px;
+  max-width: 160px;
+}
+
+.status-cell {
+  text-align: center;
+}
+
+.status-cell .status-badge {
+  font-size: 11px;
 }
 
 /* ==========================================

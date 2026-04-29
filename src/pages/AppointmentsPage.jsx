@@ -232,7 +232,12 @@ export default function AppointmentsPage() {
         await loadAllAppointments();
       } catch (e) {
         if (e?.response?.status === 400) {
-          toast.error("Khung giờ này hiện đã có người đặt, vui lòng chọn khung giờ khác hoặc bác sĩ khác.");
+          const backendMessage = e?.response?.data?.message;
+          if (backendMessage) {
+            toast.error(backendMessage);
+          } else {
+            toast.error(e?.message || "Đặt lịch hẹn thất bại");
+          }
         } else {
           toast.error(e?.message || "Tạo lịch hẹn thất bại");
         }
