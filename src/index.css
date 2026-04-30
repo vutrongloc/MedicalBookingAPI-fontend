@@ -1134,9 +1134,11 @@ textarea {
   font-size: 12px;
   color: #6b7280;
   margin: 0 0 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .notification-item-time {
@@ -1152,6 +1154,31 @@ textarea {
   position: absolute;
   top: 14px;
   right: 14px;
+}
+
+.notification-item-icon--success {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.notification-item-icon--error {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.notification-item-icon--warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.notification-item-icon--info {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.notification-item-icon--default {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 /* ==========================================

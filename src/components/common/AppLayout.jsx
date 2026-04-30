@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useState, useRef, useEffect } from "react";
+import NotificationBell from "./NotificationBell";
 
 const menuItems = [
   { to: "/", label: "Trang chủ" },
@@ -60,6 +61,7 @@ export default function AppLayout() {
             </div>
           </div>
           <div className="topbar-right">
+            <NotificationBell />
             <div className="avatar-wrapper" ref={avatarRef}>
               <button
                 className="avatar-btn"

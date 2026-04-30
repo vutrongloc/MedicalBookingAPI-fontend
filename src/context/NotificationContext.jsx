@@ -1,16 +1,21 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import * as signalR from "@microsoft/signalr";
 import { getNotificationsService, getUnreadCountService, markAsReadService, markAllAsReadService } from "../api/services/notificationService";
 import { useAuth } from "../hooks/useAuth";
+import { tokenStorage } from "../utils/storage";
 
 const NotificationContext = createContext(null);
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5220";
+
 export function NotificationProvider({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const connectionRef = useRef(null);
 
   const fetchUnreadCount = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -59,6 +64,7 @@ export function NotificationProvider({ children }) {
     }
   }, []);
 
+  // Fetch on login
   useEffect(() => {
     if (isAuthenticated) {
       fetchUnreadCount();
@@ -68,6 +74,53 @@ export function NotificationProvider({ children }) {
       setUnreadCount(0);
     }
   }, [isAuthenticated, fetchUnreadCount, fetchNotifications]);
+
+  // SignalR realtime
+  useEffect(() => {
+    if (!isAuthenticated || !user?.userId) return;
+
+    const token = tokenStorage.get();
+    if (!token) return;
+
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(`${API_BASE_URL}/hubs/notifications`, {
+        accessTokenFactory: () => token,
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    connectionRef.current = connection;
+
+    connection.on("ReceiveNotification", (newNotification) => {
+      const normalized = {
+        notificationId: newNotification.notificationId,
+        title: newNotification.title,
+        message: newNotification.message,
+        type: newNotification.type,
+        isRead: false,
+        createdAt: newNotification.createdAt,
+        relatedEntityId: newNotification.relatedId || newNotification.relatedEntityId,
+        relatedEntityType: newNotification.relatedEntityType || "Appointment",
+      };
+      setNotifications((prev) => [normalized, ...prev]);
+      setUnreadCount((prev) => prev + 1);
+    });
+
+    const startConnection = async () => {
+      try {
+        await connection.start();
+        await connection.invoke("JoinUserGroup", user.userId);
+      } catch (err) {
+        console.error("SignalR connection error:", err);
+      }
+    };
+
+    startConnection();
+
+    return () => {
+      connection.stop().catch(() => {});
+    };
+  }, [isAuthenticated, user]);
 
   const value = {
     notifications,
