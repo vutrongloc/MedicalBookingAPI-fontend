@@ -581,7 +581,22 @@ function AppointmentsTab() {
   const [detailAppointment, setDetailAppointment] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAppointment, setDeletingAppointment] = useState(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState(null);
   const { isLocked: actionLocked, run: runAction } = useCooldown(3000);
+
+  const STATUS_LABELS = {
+    Pending: "Chờ xác nhận",
+    Confirmed: "Đã xác nhận",
+    Completed: "Hoàn thành",
+    Cancelled: "Đã hủy",
+  };
+
+  const STATUS_TRANSITIONS = {
+    Pending: ["Confirmed", "Cancelled"],
+    Confirmed: ["Completed", "Cancelled"],
+    Completed: [],
+    Cancelled: [],
+  };
 
   const load = async (filterParams = filters) => {
     setLoading(true);
@@ -653,6 +668,41 @@ function AppointmentsTab() {
       try {
         await updateAppointmentStatusService(appointmentId, newStatus);
         toast.success("Cập nhật trạng thái thành công");
+        await load(filters);
+      } catch (e) {
+        toast.error(e?.message || "Cập nhật trạng thái thất bại");
+      }
+    });
+  };
+
+  const openStatusConfirm = (appointment, newStatus) => {
+    const allowed = STATUS_TRANSITIONS[appointment.status] || [];
+    if (allowed.length === 0) {
+      toast.warning(`Lịch hẹn đang ở trạng thái "${STATUS_LABELS[appointment.status]}" và không thể thay đổi.`);
+      return;
+    }
+    if (!allowed.includes(newStatus)) {
+      toast.warning(`Không thể chuyển từ "${STATUS_LABELS[appointment.status]}" sang "${STATUS_LABELS[newStatus]}".`);
+      return;
+    }
+    setPendingStatusChange({
+      appointmentId: appointment.appointmentId,
+      currentStatus: appointment.status,
+      newStatus,
+      appointmentCode: appointment.appointmentId,
+    });
+  };
+
+  const confirmStatusChange = () => {
+    if (!pendingStatusChange) return;
+    runAction(async () => {
+      try {
+        await updateAppointmentStatusService(
+          pendingStatusChange.appointmentId,
+          pendingStatusChange.newStatus,
+        );
+        toast.success("Cập nhật trạng thái thành công");
+        setPendingStatusChange(null);
         await load(filters);
       } catch (e) {
         toast.error(e?.message || "Cập nhật trạng thái thất bại");
@@ -805,13 +855,15 @@ function AppointmentsTab() {
                         <circle cx="12" cy="12" r="3"/>
                       </svg>
                     </button>
+                    <StatusBadge status={a.status} />
                     <select
                       className="table-filter-select"
-                      value={a.status}
-                      onChange={(e) => handleStatusChange(a.appointmentId, e.target.value)}
-                      disabled={actionLocked}
+                      value=""
+                      onChange={(e) => openStatusConfirm(a, e.target.value)}
+                      disabled={actionLocked || (STATUS_TRANSITIONS[a.status] || []).length === 0}
                       style={{ minWidth: 110, fontSize: 12 }}
                     >
+                      <option value="" disabled>Đổi trạng thái...</option>
                       <option value="Pending">Chờ xác nhận</option>
                       <option value="Confirmed">Đã xác nhận</option>
                       <option value="Completed">Hoàn thành</option>
@@ -869,6 +921,18 @@ function AppointmentsTab() {
             setShowDeleteConfirm(false);
             setDeletingAppointment(null);
           }}
+        />
+      )}
+
+      {pendingStatusChange && (
+        <ConfirmDialog
+          message={`Bạn có chắc muốn đổi lịch hẹn #${pendingStatusChange.appointmentCode} từ "${STATUS_LABELS[pendingStatusChange.currentStatus]}" sang "${STATUS_LABELS[pendingStatusChange.newStatus]}" không?`}
+          confirmText="Xác nhận đổi trạng thái"
+          cancelText="Hủy"
+          variant="warning"
+          disabled={actionLocked}
+          onConfirm={confirmStatusChange}
+          onCancel={() => setPendingStatusChange(null)}
         />
       )}
     </div>
